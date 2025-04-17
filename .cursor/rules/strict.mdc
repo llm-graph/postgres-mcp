@@ -1,0 +1,28 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+You have to follow these rules:
+## Do:
+
+1. Strictly follow [README.md](mdc:README.md) requirements
+2. Use functional programming techniques exclusively
+3. Maintain immutability throughout
+4. Ensure all changes pass `bun test`
+5. Write isolated test cases using bun:test without mocks
+6. Use DRY principle across all files
+7. Always have bun-first mindset
+
+## Don't:
+8. Avoid OOP, classes, or inheritance
+9. Avoid traditional methods (use higher order functions instead)
+10. Don't write comments
+11. Don't use `any` or `unknown` types
+12. Do not create code of simulation, stub, mock, etc. you should produce code of real expected features
+13. Should not create another files other than these:
+   - `src/constants.ts` configuration defaults
+   - `src/core.ts` - Core functionality
+   - `src/types.ts` - Type definitions
+   - `src/utils.ts` - Utility functions
+   - `test/e2e/* & test/unit/*` - Test files

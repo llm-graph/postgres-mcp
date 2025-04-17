@@ -1,0 +1,24 @@
+{
+  "name": "postgres-mcp",
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "test": "bun test",
+    "inspect": "bunx fastmcp inspect src/index.ts",
+    "cli": "bunx fastmcp dev src/index.ts"
+  },
+  "dependencies": {
+    "fastmcp": "latest",
+    "postgres": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "bun-types": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
