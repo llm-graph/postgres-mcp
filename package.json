@@ -1,24 +1,65 @@
 {
   "name": "postgres-mcp",
-  "module": "src/index.ts",
+  "version": "1.0.0",
+  "description": "A blazing fast, type-safe MCP Server for AI Agents to interact with multiple PostgreSQL databases",
+  "module": "dist/index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "type": "module",
+  "bin": {
+    "postgres-mcp": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "scripts": {
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
     "test": "bun test",
     "inspect": "bunx fastmcp inspect src/index.ts",
-    "cli": "bunx fastmcp dev src/index.ts"
+    "cli": "bunx fastmcp dev src/index.ts",
+    "build": "bun build ./src/index.ts --outdir ./dist --target node --minify && bun build ./src/cli.ts --outdir ./dist --target node --minify && tsc --emitDeclarationOnly --outDir dist",
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "latest",
+    "effect": "latest",
     "fastmcp": "latest",
     "postgres": "latest",
     "zod": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "bun-types": "latest"
-  },
-  "peerDependencies": {
+    "bun-types": "latest",
     "typescript": "^5"
-  }
+  },
+  "keywords": [
+    "mcp",
+    "postgres",
+    "database",
+    "ai",
+    "agent",
+    "cursor",
+    "claude",
+    "sql",
+    "fastmcp"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/llm-graph/postgres-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/llm-graph/postgres-mcp/issues"
+  },
+  "homepage": "https://github.com/llm-graph/postgres-mcp#readme"
 }

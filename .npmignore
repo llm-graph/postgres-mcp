@@ -1,0 +1,27 @@
+# Source
+src/
+
+# Tests
+test/
+*.test.ts
+
+# Development
+.git/
+.gitignore
+.cursor/
+.env
+.env.example
+node_modules/
+
+# Build artifacts
+bun.lock
+
+# Docker
+docker-compose*.yml
+
+# Editor
+.vscode/
+.idea/
+
+# Logs
+*.log 

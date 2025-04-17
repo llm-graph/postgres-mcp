@@ -1,3 +1,11 @@
-import { startServer } from './core';
+// Export core functionality
+export { startServer } from './core';
 
-startServer(); 
+// Export types
+export * from './types';
+
+// Export utility functions
+export * from './utils';
+
+// Export constants
+export * from './constants'; 

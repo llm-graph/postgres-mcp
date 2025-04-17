@@ -9,6 +9,8 @@ It is built with Bun, TypeScript, `postgres`, and leverages advanced features of
 [![Built with Bun](https://img.shields.io/badge/Built%20with-Bun-_000)](https://bun.sh)
 [![Uses postgres](https://img.shields.io/badge/Uses-postgres-336791)](https://github.com/porsager/postgres)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue)](https://www.typescriptlang.org/)
+[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-green)](https://github.com/llm-graph/postgres-mcp)
+[![NPM Package](https://img.shields.io/badge/NPM-Package-red)](https://www.npmjs.com/package/postgres-mcp)
 
 ## Purpose: An MCP Server for AI Agents
 
@@ -50,11 +52,25 @@ This is **not** a library to be imported into your code. It is a **standalone se
 
 ## ⚙️ Installation
 
+### Option 1: NPM Package
+
+```bash
+# Install globally
+npm install -g postgres-mcp
+
+# Or install locally in your project
+npm install postgres-mcp
+```
+
+The npm package is available at [https://www.npmjs.com/package/postgres-mcp](https://www.npmjs.com/package/postgres-mcp)
+
+### Option 2: Clone Repository
+
 1.  **Clone the repository:**
     ```bash
     # Replace with your actual repository URL
-    git clone https://github.com/yourusername/fast-postgres-mcp.git
-    cd fast-postgres-mcp
+    git clone https://github.com/llm-graph/postgres-mcp.git
+    cd postgres-mcp
     ```
 
 2.  **Install dependencies:**
@@ -103,6 +119,21 @@ DB_REPORTING_USER=readonly_reporter # Needs permissions on information_schema
 
 Run this server directly using Bun. The AI Client (like Cursor) will typically start and manage this command for you.
 
+### Option 1: Using the globally installed package
+*   **To run manually:** `postgres-mcp`
+
+### Option 2: Using the package in your project
+*   **To run from your project:** `npx postgres-mcp`
+*   **Or import programmatically:**
+    ```javascript
+    // server.js
+    import { startServer } from 'postgres-mcp';
+    
+    // Start the MCP server
+    startServer();
+    ```
+
+### Option 3: From cloned repository
 *   **To run manually (for testing):** `bun run src/index.ts`
 *   **Manual Development Mode:** `bun run --watch src/index.ts`
 
@@ -126,13 +157,13 @@ Configure your AI Agent (MCP Client) to **execute** this server script via its c
     // In Cursor's settings.json or MCP configuration UI
     {
       "mcpServers": {
-        "fast-postgres-mcp": { // Unique name for Cursor
+        "postgres-mcp": { // Unique name for Cursor
           "description": "MCP Server for PostgreSQL DBs (Main, Reporting)",
           "command": "bun",  // Use 'bun' or provide absolute path: "/Users/your_username/.bun/bin/bun"
           "args": [
             "run",
             // *** CRITICAL: ABSOLUTE PATH to your server's entry point ***
-            "/Users/your_username/projects/fast-postgres-mcp/src/index.ts" // CHANGE THIS
+            "/Users/your_username/projects/postgres-mcp/src/index.ts" // CHANGE THIS
           ],
           "env": {
             // .env file in project dir is loaded automatically by Bun.
@@ -332,4 +363,14 @@ Executes multiple SQL statements atomically.
 
 ## 📜 License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details. (Ensure a LICENSE file exists).
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+
+## 📋 Changelog
+
+### 1.0.0
+- Initial release
+- Full-featured MCP Server for PostgreSQL
+- Support for multiple database connections
+- Tools for queries, execution, and transactions
+- Resources for schema introspection
+- Comprehensive documentation and examples
