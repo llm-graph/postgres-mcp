@@ -49,44 +49,70 @@ describe('Database MCP Tools E2E', () => {
   };
   let sql: postgres.Sql<{}>;
   let originalDbAlias: string | undefined;
+  let useDockerDb = true;
+  let actualDbConfig: any;
   
-  // Set up test environment with real PostgreSQL in Docker
+  // Set up test environment with real PostgreSQL in Docker or use existing database
   beforeAll(async () => {
-    console.log('┌─────────────────────────────────────────────────┐');
-    console.log('│ Setting up PostgreSQL in Docker for testing...  │');
-    console.log('└─────────────────────────────────────────────────┘');
-    
     // Save original environment variables
     originalDbAlias = process.env['DEFAULT_DB_ALIAS'];
     
-    // Start PostgreSQL in Docker
-    const dbStarted = await setupTestDb();
-    if (!dbStarted) {
-      throw new Error('Failed to start PostgreSQL in Docker');
+    // Check if we should use an existing remote database
+    const existingDbHost = process.env['DB_MAIN_HOST'];
+    useDockerDb = !existingDbHost || existingDbHost === 'localhost' || existingDbHost === '127.0.0.1';
+    
+    if (useDockerDb) {
+      console.log('┌─────────────────────────────────────────────────┐');
+      console.log('│ Setting up PostgreSQL in Docker for testing...  │');
+      console.log('└─────────────────────────────────────────────────┘');
+      
+      // Start PostgreSQL in Docker
+      const dbStarted = await setupTestDb();
+      if (!dbStarted) {
+        throw new Error('Failed to start PostgreSQL in Docker');
+      }
+      
+      actualDbConfig = { ...TEST_DB_CONFIG };
+    } else {
+      console.log('┌─────────────────────────────────────────────────┐');
+      console.log('│ Using existing remote database for testing      │');
+      console.log('└─────────────────────────────────────────────────┘');
+      
+      // Use the environment database configuration
+      actualDbConfig = {
+        host: process.env['DB_MAIN_HOST'],
+        port: Number(process.env['DB_MAIN_PORT'] || '5432'),
+        database: process.env['DB_MAIN_NAME'],
+        user: process.env['DB_MAIN_USER'],
+        password: process.env['DB_MAIN_PASSWORD'],
+        ssl: process.env['DB_MAIN_SSL'] || 'disable'
+      };
     }
     
     try {
       console.log('Configuring test database...');
       
-      // Connect to PostgreSQL admin database with retries
-      const adminSql = await retryDatabaseOperation(async () => {
-        return createPostgresClient({
-          ...TEST_DB_CONFIG,
-          database: 'postgres' // Connect to default database for admin operations
+      if (useDockerDb) {
+        // Connect to PostgreSQL admin database with retries for Docker setup
+        const adminSql = await retryDatabaseOperation(async () => {
+          return createPostgresClient({
+            ...actualDbConfig,
+            database: 'postgres' // Connect to default database for admin operations
+          });
         });
-      });
-      
-      try {
-        // Create test database if it doesn't exist
-        await adminSql.unsafe(`DROP DATABASE IF EXISTS ${TEST_DB_CONFIG.database}`);
-        await adminSql.unsafe(`CREATE DATABASE ${TEST_DB_CONFIG.database}`);
-      } finally {
-        await adminSql.end();
+        
+        try {
+          // Create test database if it doesn't exist
+          await adminSql.unsafe(`DROP DATABASE IF EXISTS ${actualDbConfig.database}`);
+          await adminSql.unsafe(`CREATE DATABASE ${actualDbConfig.database}`);
+        } finally {
+          await adminSql.end();
+        }
       }
       
       // Connect to the test database with retries
       sql = await retryDatabaseOperation(async () => {
-        return createPostgresClient(TEST_DB_CONFIG);
+        return createPostgresClient(actualDbConfig);
       });
       
       console.log('Creating test tables and data...');
@@ -110,16 +136,18 @@ describe('Database MCP Tools E2E', () => {
         ('User Two', 'user2@example.com')
       `);
       
-      console.log('Configuring environment...');
-      // Configure environment for MCP server
-      process.env['DB_ALIASES'] = 'main';
-      process.env['DEFAULT_DB_ALIAS'] = 'main';
-      process.env['DB_MAIN_HOST'] = TEST_DB_CONFIG.host;
-      process.env['DB_MAIN_PORT'] = String(TEST_DB_CONFIG.port);
-      process.env['DB_MAIN_NAME'] = TEST_DB_CONFIG.database;
-      process.env['DB_MAIN_USER'] = TEST_DB_CONFIG.user;
-      process.env['DB_MAIN_PASSWORD'] = TEST_DB_CONFIG.password;
-      process.env['DB_MAIN_SSL'] = TEST_DB_CONFIG.ssl;
+      if (useDockerDb) {
+        console.log('Configuring environment...');
+        // Configure environment for MCP server when using Docker
+        process.env['DB_ALIASES'] = 'main';
+        process.env['DEFAULT_DB_ALIAS'] = 'main';
+        process.env['DB_MAIN_HOST'] = actualDbConfig.host;
+        process.env['DB_MAIN_PORT'] = String(actualDbConfig.port);
+        process.env['DB_MAIN_NAME'] = actualDbConfig.database;
+        process.env['DB_MAIN_USER'] = actualDbConfig.user;
+        process.env['DB_MAIN_PASSWORD'] = actualDbConfig.password;
+        process.env['DB_MAIN_SSL'] = actualDbConfig.ssl;
+      }
       
       console.log('Setting up test server...');
       // Create server object with tools for testing
@@ -244,32 +272,34 @@ describe('Database MCP Tools E2E', () => {
         await sql.end();
       }
       
-      // Restore environment variables
-      if (originalDbAlias) {
-        process.env['DEFAULT_DB_ALIAS'] = originalDbAlias;
-      } else {
-        delete process.env['DEFAULT_DB_ALIAS'];
+      if (useDockerDb) {
+        // Restore environment variables if we changed them
+        if (originalDbAlias) {
+          process.env['DEFAULT_DB_ALIAS'] = originalDbAlias;
+        } else {
+          delete process.env['DEFAULT_DB_ALIAS'];
+        }
+        
+        // Clean up other environment variables
+        delete process.env['DB_ALIASES'];
+        delete process.env['DB_MAIN_HOST'];
+        delete process.env['DB_MAIN_PORT'];
+        delete process.env['DB_MAIN_NAME'];
+        delete process.env['DB_MAIN_USER'];
+        delete process.env['DB_MAIN_PASSWORD'];
+        delete process.env['DB_MAIN_SSL'];
+        
+        // Use Promise.race to ensure we don't hang indefinitely
+        console.log('Cleaning up Docker container...');
+        const cleanup = cleanupTestDb();
+        
+        // Run cleanup but ensure it doesn't block test completion
+        // This ensures test summary is still visible even if cleanup hangs
+        await Promise.race([
+          Promise.resolve(cleanup),
+          new Promise(resolve => setTimeout(resolve, 5000))
+        ]);
       }
-      
-      // Clean up other environment variables
-      delete process.env['DB_ALIASES'];
-      delete process.env['DB_MAIN_HOST'];
-      delete process.env['DB_MAIN_PORT'];
-      delete process.env['DB_MAIN_NAME'];
-      delete process.env['DB_MAIN_USER'];
-      delete process.env['DB_MAIN_PASSWORD'];
-      delete process.env['DB_MAIN_SSL'];
-      
-      // Use Promise.race to ensure we don't hang indefinitely
-      console.log('Cleaning up Docker container...');
-      const cleanup = cleanupTestDb();
-      
-      // Run cleanup but ensure it doesn't block test completion
-      // This ensures test summary is still visible even if cleanup hangs
-      await Promise.race([
-        Promise.resolve(cleanup),
-        new Promise(resolve => setTimeout(resolve, 5000))
-      ]);
       
       console.log('┌─────────────────────────────────────────────────┐');
       console.log('│ Test cleanup complete                           │');

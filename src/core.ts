@@ -1,4 +1,4 @@
-import { FastMCP, UserError } from 'fastmcp';
+import { FastMCP, UserError, } from 'fastmcp';
 import postgres from 'postgres';
 import { 
   QueryToolParams, QueryToolParamsSchema,
