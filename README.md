@@ -40,7 +40,7 @@ This is **not** a library to be imported into your code. It is a **standalone se
 ## What's Included (fastmcp Features Leveraged)
 
 *   `FastMCP` Server Core
-*   `server.addTool` (for `query`, `execute`, `transaction`)
+*   `server.addTool` (for `query_tool`, `execute_tool`, `schema_tool`, and `transaction_tool`)
 *   `server.addResourceTemplate` (for listing tables and inspecting table schemas)
 *   `server.start` (with `stdio` focus, adaptable for `sse`/`http`)
 *   **Optional:** `authenticate` Hook (for API Key validation)
@@ -111,6 +111,9 @@ DB_MAIN_USER=app_user         # Needs permissions on information_schema
 DB_MAIN_PASSWORD=app_secret_password
 DB_MAIN_SSL=disable           # Recommend 'require' or stricter for prod
 
+# Alternative: Use connection URLs
+# DB_MAIN_URL=postgres://user:password@localhost:5432/database?sslmode=require
+
 DB_REPORTING_HOST=reporting-db.read-replica.internal
 # ... other reporting DB details ...
 DB_REPORTING_USER=readonly_reporter # Needs permissions on information_schema
@@ -163,11 +166,12 @@ Configure your AI Agent (MCP Client) to **execute** this server script via its c
       "mcpServers": {
         "postgres-mcp": { // Unique name for Cursor
           "description": "MCP Server for PostgreSQL DBs (Main, Reporting)",
-          "command": "bun",  // Use 'bun' or provide absolute path: "/Users/your_username/.bun/bin/bun"
+          "command": "bunx",  // Use 'bun' or provide absolute path: "/Users/your_username/.bun/bin/bun"
           "args": [
-            "run",
-            // *** CRITICAL: ABSOLUTE PATH to your server's entry point ***
-            "/Users/your_username/projects/postgres-mcp/src/index.ts" // CHANGE THIS
+            "postgres-mcp"
+            // or
+            // *** ABSOLUTE PATH to your server's entry point ***
+            // "/Users/your_username/projects/postgres-mcp/src/index.ts" /
           ],
           "env": {
             // .env file in project dir is loaded automatically by Bun.
@@ -222,17 +226,6 @@ Configure your AI Agent (MCP Client) to **execute** this server script via its c
 
 **Example Usage (AI Prompt):** "Describe the resource `db://reporting/schema/daily_sales`."
 
-**Example Request:**
-```json
-{
-  "tool_name": "schema_tool",
-  "arguments": {
-    "tableName": "user_sessions",
-    "dbAlias": "main"
-  }
-}
-```
-
 **Example Response Content (JSON String):**
 ```json
 "[{\"column_name\":\"session_id\",\"data_type\":\"uuid\",\"is_nullable\":\"NO\",\"column_default\":\"gen_random_uuid()\"},{\"column_name\":\"user_id\",\"data_type\":\"integer\",\"is_nullable\":\"NO\",\"column_default\":null},{\"column_name\":\"created_at\",\"data_type\":\"timestamp with time zone\",\"is_nullable\":\"YES\",\"column_default\":\"now()\"},{\"column_name\":\"expires_at\",\"data_type\":\"timestamp with time zone\",\"is_nullable\":\"YES\",\"column_default\":null}]"
@@ -272,8 +265,6 @@ Executes read-only SQL queries.
 
 ---
 
----
-
 #### 2. `execute_tool`
 
 Executes data-modifying SQL statements.
@@ -296,12 +287,40 @@ Executes data-modifying SQL statements.
 ```
 
 **Example Response Content (String):**
-```"Rows affected: 1"
+```
+"Rows affected: 1"
 ```
 
 ---
 
-#### 3. `transaction_tool`
+#### 3. `schema_tool`
+
+Retrieves detailed schema information for a specific table.
+
+*   **Description:** Get column definitions and details for a database table.
+*   **Parameters:** `tableName` (string), `dbAlias` (string, opt).
+*   **Context Usage:** `log.info`, access `session`.
+*   **Returns:** JSON string array of column information objects.
+
+**Example Request:**
+```json
+{
+  "tool_name": "schema_tool",
+  "arguments": {
+    "tableName": "user_sessions",
+    "dbAlias": "main"
+  }
+}
+```
+
+**Example Response Content (JSON String):**
+```json
+"[{\"column_name\":\"session_id\",\"data_type\":\"uuid\",\"is_nullable\":\"NO\",\"column_default\":\"gen_random_uuid()\"},{\"column_name\":\"user_id\",\"data_type\":\"integer\",\"is_nullable\":\"NO\",\"column_default\":null},{\"column_name\":\"created_at\",\"data_type\":\"timestamp with time zone\",\"is_nullable\":\"YES\",\"column_default\":\"now()\"},{\"column_name\":\"expires_at\",\"data_type\":\"timestamp with time zone\",\"is_nullable\":\"YES\",\"column_default\":null}]"
+```
+
+---
+
+#### 4. `transaction_tool`
 
 Executes multiple SQL statements atomically.
 
@@ -319,12 +338,10 @@ Executes multiple SQL statements atomically.
       {
         "statement": "INSERT INTO orders (customer_id, order_date, status) VALUES ($1, NOW(), 'pending') RETURNING order_id",
         "params": [101]
-        // Note: Simple version doesn't automatically handle passing RETURNING values between operations.
-        // More complex workflows might need separate tool calls or enhanced logic.
       },
       {
         "statement": "INSERT INTO order_items (order_id, product_sku, quantity, price) VALUES ($1, $2, $3, $4)",
-        "params": [/* placeholder for returned order_id */ 9999, "GADGET-X", 2, 49.99]
+        "params": [9999, "GADGET-X", 2, 49.99]
       },
       {
         "statement": "UPDATE inventory SET stock_count = stock_count - $1 WHERE product_sku = $2 AND stock_count >= $1",
@@ -347,7 +364,6 @@ Executes multiple SQL statements atomically.
 ```
 
 ---
-
 
 ### Server & Session Events
 
@@ -374,6 +390,6 @@ This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) f
 - Initial release
 - Full-featured MCP Server for PostgreSQL
 - Support for multiple database connections
-- Tools for queries, execution, and transactions
+- Tools for queries, execution, schema inspection, and transactions
 - Resources for schema introspection
 - Comprehensive documentation and examples
