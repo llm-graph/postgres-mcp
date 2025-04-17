@@ -30,14 +30,30 @@ export const createDbConfigFromEnv = (alias: string): DatabaseConfig => {
   
   const url = process.env[`DB_${upperAlias}_URL`];
   if (url) {
-    return {
-      host: '',
-      port: 0,
-      database: '',
-      user: '',
-      password: '',
-      ssl: undefined
-    };
+    try {
+      const dbUrl = new URL(url);
+      const userPass = dbUrl.username && dbUrl.password ? 
+        `${dbUrl.username}:${dbUrl.password}` : '';
+      
+      // Extract database name from pathname (remove leading slash)
+      const dbName = dbUrl.pathname.substring(1);
+      
+      // Parse SSL mode from query parameters
+      const params = new URLSearchParams(dbUrl.search);
+      const sslMode = params.get('sslmode');
+      
+      return {
+        host: dbUrl.hostname,
+        port: parseInt(dbUrl.port || '5432', 10),
+        database: dbName,
+        user: decodeURIComponent(dbUrl.username || ''),
+        password: decodeURIComponent(dbUrl.password || ''),
+        ssl: sslMode || undefined
+      };
+    } catch (error) {
+      console.error(`Invalid database URL for ${alias}:`, error);
+      // Fall back to individual env vars
+    }
   }
   
   return {

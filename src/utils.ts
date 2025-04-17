@@ -5,7 +5,10 @@ export const createPostgresClient = (config: DatabaseConfig): postgres.Sql<{}> =
   const { host, port, database, user, password, ssl } = config;
   
   const sslConfig = ssl ? {
-    ssl: ssl === 'disable' ? false : { rejectUnauthorized: ssl !== 'require' }
+    ssl: ssl === 'disable' ? false : 
+         ssl === 'require' ? { rejectUnauthorized: false } :
+         ssl === 'verify-ca' || ssl === 'verify-full' ? { rejectUnauthorized: true } :
+         { rejectUnauthorized: false } // Default to 'prefer' behavior
   } : {};
   
   return postgres({

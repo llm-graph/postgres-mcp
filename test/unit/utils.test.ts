@@ -1,18 +1,38 @@
 import { describe, expect, test } from 'bun:test';
-import { safeJsonStringify } from '../../src/utils';
+import { safeJsonStringify, createPostgresClient } from '../../src/utils';
+import { DatabaseConfig } from '../../src/types';
 
 describe('Utilities', () => {
   test('safeJsonStringify returns JSON string for valid data', () => {
-    const testData = { key: 'value', num: 123 };
-    const result = safeJsonStringify(testData);
-    expect(result).toEqual('{"key":"value","num":123}');
+    const data = { name: 'test', values: [1, 2, 3] };
+    expect(safeJsonStringify(data)).toBe(JSON.stringify(data));
+  });
+
+  test('safeJsonStringify returns empty array string for circular references', () => {
+    const circular: any = { self: null };
+    circular.self = circular;
+    expect(safeJsonStringify(circular)).toBe('[]');
   });
   
-  test('safeJsonStringify returns empty array string for circular references', () => {
-    const circularObj: Record<string, unknown> = {};
-    circularObj['self'] = circularObj;
+  test('createPostgresClient configures SSL based on config value', () => {
+    const baseConfig: DatabaseConfig = {
+      host: 'localhost',
+      port: 5432,
+      database: 'testdb',
+      user: 'user',
+      password: 'pass'
+    };
     
-    const result = safeJsonStringify(circularObj);
-    expect(result).toEqual('[]');
+    const sqlDisable = createPostgresClient({ ...baseConfig, ssl: 'disable' }) as any;
+    expect(sqlDisable.options.ssl).toBe(false);
+    
+    const sqlRequire = createPostgresClient({ ...baseConfig, ssl: 'require' }) as any;
+    expect(sqlRequire.options.ssl.rejectUnauthorized).toBe(false);
+    
+    const sqlVerifyFull = createPostgresClient({ ...baseConfig, ssl: 'verify-full' }) as any;
+    expect(sqlVerifyFull.options.ssl.rejectUnauthorized).toBe(true);
+    
+    const sqlDefault = createPostgresClient(baseConfig) as any;
+    expect(sqlDefault.options.ssl).toBeFalsy();
   });
 }); 

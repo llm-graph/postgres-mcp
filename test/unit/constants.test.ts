@@ -115,4 +115,19 @@ describe('Constants', () => {
       apiKey: 'test-key'
     });
   });
+  
+  test('createDbConfigFromEnv parses database URL correctly', () => {
+    process.env['DB_TEST_URL'] = 'postgresql://user:pass@hostname:5555/dbname?sslmode=require';
+    
+    const config = createDbConfigFromEnv('test');
+    
+    expect(config.host).toBe('hostname');
+    expect(config.port).toBe(5555);
+    expect(config.database).toBe('dbname');
+    expect(config.user).toBe('user');
+    expect(config.password).toBe('pass');
+    expect(config.ssl).toBe('require');
+    
+    delete process.env['DB_TEST_URL'];
+  });
 }); 
