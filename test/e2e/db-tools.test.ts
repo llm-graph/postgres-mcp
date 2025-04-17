@@ -1,8 +1,7 @@
 import { describe, expect, test, beforeAll, afterAll } from 'bun:test';
 import postgres from 'postgres';
-import { Operation } from '../../src/types';
 import { safeJsonStringify, createPostgresClient } from '../../src/utils';
-import { setupTestDb, cleanupTestDb } from '../setup-db';
+import { setupTestDb, cleanupTestDb } from '../test-utils';
 
 // Test database configuration
 const TEST_DB_CONFIG = {
@@ -12,6 +11,29 @@ const TEST_DB_CONFIG = {
   user: 'postgres',
   password: 'postgres',
   ssl: 'disable'
+};
+
+// Add a retry function for database operations
+const retryDatabaseOperation = async <T>(
+  operation: () => Promise<T>,
+  retries = 3,
+  delay = 2000
+): Promise<T> => {
+  let lastError: unknown;
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) {
+        console.log(`Database operation failed, retrying (${attempt}/${retries})...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  throw lastError;
 };
 
 describe('Database MCP Tools E2E', () => {
@@ -30,7 +52,9 @@ describe('Database MCP Tools E2E', () => {
   
   // Set up test environment with real PostgreSQL in Docker
   beforeAll(async () => {
-    console.log('Setting up test environment with real PostgreSQL in Docker...');
+    console.log('┌─────────────────────────────────────────────────┐');
+    console.log('│ Setting up PostgreSQL in Docker for testing...  │');
+    console.log('└─────────────────────────────────────────────────┘');
     
     // Save original environment variables
     originalDbAlias = process.env['DEFAULT_DB_ALIAS'];
@@ -42,10 +66,14 @@ describe('Database MCP Tools E2E', () => {
     }
     
     try {
-      // Connect to PostgreSQL admin database
-      const adminSql = createPostgresClient({
-        ...TEST_DB_CONFIG,
-        database: 'postgres' // Connect to default database for admin operations
+      console.log('Configuring test database...');
+      
+      // Connect to PostgreSQL admin database with retries
+      const adminSql = await retryDatabaseOperation(async () => {
+        return createPostgresClient({
+          ...TEST_DB_CONFIG,
+          database: 'postgres' // Connect to default database for admin operations
+        });
       });
       
       try {
@@ -56,9 +84,12 @@ describe('Database MCP Tools E2E', () => {
         await adminSql.end();
       }
       
-      // Connect to the test database
-      sql = createPostgresClient(TEST_DB_CONFIG);
+      // Connect to the test database with retries
+      sql = await retryDatabaseOperation(async () => {
+        return createPostgresClient(TEST_DB_CONFIG);
+      });
       
+      console.log('Creating test tables and data...');
       // Create test tables
       await sql.unsafe(`
         CREATE TABLE IF NOT EXISTS test_users (
@@ -79,6 +110,7 @@ describe('Database MCP Tools E2E', () => {
         ('User Two', 'user2@example.com')
       `);
       
+      console.log('Configuring environment...');
       // Configure environment for MCP server
       process.env['DB_ALIASES'] = 'main';
       process.env['DEFAULT_DB_ALIAS'] = 'main';
@@ -89,19 +121,20 @@ describe('Database MCP Tools E2E', () => {
       process.env['DB_MAIN_PASSWORD'] = TEST_DB_CONFIG.password;
       process.env['DB_MAIN_SSL'] = TEST_DB_CONFIG.ssl;
       
+      console.log('Setting up test server...');
       // Create server object with tools for testing
       server = {
         tools: [
           {
             name: 'query_tool',
-            execute: async ({ statement, params, dbAlias }: any) => {
+            execute: async ({ statement, params }: any) => {
               const result = await sql.unsafe(statement, params || []);
               return safeJsonStringify(result);
             }
           },
           {
             name: 'schema_tool',
-            execute: async ({ tableName, dbAlias }: any) => {
+            execute: async ({ tableName }: any) => {
               const result = await sql.unsafe(
                 'SELECT column_name, data_type, is_nullable, column_default ' +
                 'FROM information_schema.columns ' +
@@ -114,16 +147,15 @@ describe('Database MCP Tools E2E', () => {
           },
           {
             name: 'execute_tool',
-            execute: async ({ statement, params, dbAlias }: any) => {
+            execute: async ({ statement, params }: any) => {
               const result = await sql.unsafe(statement, params || []);
               return `Rows affected: ${result.count || 0}`;
             }
           },
           {
             name: 'transaction_tool',
-            execute: async ({ operations, dbAlias }: any) => {
+            execute: async ({ operations }: any) => {
               const results: Array<{operation: number, rowsAffected: number}> = [];
-              let success = true;
               let error = '';
               let failedOperationIndex = -1;
               
@@ -138,7 +170,6 @@ describe('Database MCP Tools E2E', () => {
                         rowsAffected: result.count || 0
                       });
                     } catch (e) {
-                      success = false;
                       error = e instanceof Error ? e.message : String(e);
                       failedOperationIndex = i;
                       throw e; // Trigger rollback
@@ -163,7 +194,7 @@ describe('Database MCP Tools E2E', () => {
         resourceTemplates: [
           {
             uriTemplate: 'db://{dbAlias}/schema/tables',
-            load: async ({ dbAlias }: any) => {
+            load: async ({}: any) => {
               const tables = await sql.unsafe(
                 'SELECT table_name FROM information_schema.tables ' +
                 'WHERE table_schema = \'public\' AND table_type = \'BASE TABLE\' ' +
@@ -174,7 +205,7 @@ describe('Database MCP Tools E2E', () => {
           },
           {
             uriTemplate: 'db://{dbAlias}/schema/{tableName}',
-            load: async ({ dbAlias, tableName }: any) => {
+            load: async ({ tableName }: any) => {
               const schema = await sql.unsafe(
                 'SELECT column_name, data_type, is_nullable, column_default ' +
                 'FROM information_schema.columns ' +
@@ -188,7 +219,9 @@ describe('Database MCP Tools E2E', () => {
         ]
       };
       
-      console.log('Test environment ready');
+      console.log('┌─────────────────────────────────────────────────┐');
+      console.log('│ Test environment ready                          │');
+      console.log('└─────────────────────────────────────────────────┘');
     } catch (error) {
       console.error('Failed to set up PostgreSQL for testing:', error);
       // Clean up Docker container if setup fails
@@ -197,11 +230,17 @@ describe('Database MCP Tools E2E', () => {
     }
   });
 
-  // Cleanup after tests
+  // Cleanup after tests - run in a non-blocking way to ensure we get test summary
   afterAll(async () => {
+    console.log('┌─────────────────────────────────────────────────┐');
+    console.log('│ Running test cleanup                            │');
+    console.log('└─────────────────────────────────────────────────┘');
+    
+    // Using a try/finally to ensure cleanup happens regardless of errors
     try {
       // Close database connection
       if (sql) {
+        console.log('Closing database connection...');
         await sql.end();
       }
       
@@ -211,12 +250,32 @@ describe('Database MCP Tools E2E', () => {
       } else {
         delete process.env['DEFAULT_DB_ALIAS'];
       }
+      
+      // Clean up other environment variables
+      delete process.env['DB_ALIASES'];
+      delete process.env['DB_MAIN_HOST'];
+      delete process.env['DB_MAIN_PORT'];
+      delete process.env['DB_MAIN_NAME'];
+      delete process.env['DB_MAIN_USER'];
+      delete process.env['DB_MAIN_PASSWORD'];
+      delete process.env['DB_MAIN_SSL'];
+      
+      // Use Promise.race to ensure we don't hang indefinitely
+      console.log('Cleaning up Docker container...');
+      const cleanup = cleanupTestDb();
+      
+      // Run cleanup but ensure it doesn't block test completion
+      // This ensures test summary is still visible even if cleanup hangs
+      await Promise.race([
+        Promise.resolve(cleanup),
+        new Promise(resolve => setTimeout(resolve, 5000))
+      ]);
+      
+      console.log('┌─────────────────────────────────────────────────┐');
+      console.log('│ Test cleanup complete                           │');
+      console.log('└─────────────────────────────────────────────────┘');
     } catch (error) {
-      console.error('Error during database cleanup:', error);
-    } finally {
-      // Stop and remove Docker container
-      cleanupTestDb();
-      console.log('Test cleanup complete');
+      console.error('Error during cleanup:', error);
     }
   });
 

@@ -32,8 +32,6 @@ export const createDbConfigFromEnv = (alias: string): DatabaseConfig => {
   if (url) {
     try {
       const dbUrl = new URL(url);
-      const userPass = dbUrl.username && dbUrl.password ? 
-        `${dbUrl.username}:${dbUrl.password}` : '';
       
       // Extract database name from pathname (remove leading slash)
       const dbName = dbUrl.pathname.substring(1);
