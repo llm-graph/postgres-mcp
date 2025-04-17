@@ -4,6 +4,10 @@
 
 It is built with Bun, TypeScript, `postgres`, and leverages advanced features of the `fastmcp` framework for building robust MCP servers.
 
+<a href="https://glama.ai/mcp/servers/@llm-graph/postgres-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@llm-graph/postgres-mcp/badge" alt="FastPostgresMCP MCP server" />
+</a>
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Powered by fastmcp](https://img.shields.io/badge/Powered%20by-fastmcp-blue)](https://github.com/punkpeye/fastmcp)
 [![Built with Bun](https://img.shields.io/badge/Built%20with-Bun-_000)](https://bun.sh)
@@ -305,7 +309,6 @@ Executes multiple SQL statements atomically.
 *   **Parameters:** `operations` (array of {statement, params}), `dbAlias` (string, opt).
 *   **Context Usage:** `log.info/debug/error`, `reportProgress`, access `session`.
 *   **Returns:** JSON string summarizing success/failure: `{"success": true, "results": [...]}` or `{"success": false, "error": ..., "failedOperationIndex": ...}`.
-
 
 **Example Request:**
 ```json
