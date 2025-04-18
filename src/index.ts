@@ -11,7 +11,7 @@ if (loaded) {
   console.warn(`Failed to load environment variables from .env.${nodeEnv}, .env.local, or .env`);
 }
 
-import { startServer, createPostgresMcp } from './core';
+import { startServer } from './core';
 import { runCli, startCliProcess } from './utils';
 
 // Export core functionality

@@ -120,7 +120,7 @@ describe('Environment Loading', () => {
     const result = loadEnvFile('development');
     
     // Verify result
-    expect(result.path).toBe('.env');
+    expect(result.path).toBe(null);
     expect(result.loaded).toBe(false);
   });
 }); 

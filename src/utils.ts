@@ -217,7 +217,7 @@ export const detectDevEnvironment = (): boolean => {
   );
 };
 
-export const loadEnvFile = (environment?: string): { path: string; loaded: boolean } => {
+export const loadEnvFile = (environment?: string): { path: string | null; loaded: boolean } => {
   const { config } = require('dotenv');
   const { join } = require('path');
   
@@ -236,12 +236,12 @@ export const loadEnvFile = (environment?: string): { path: string; loaded: boole
     }
   }
   
-  return { path: '.env', loaded: false };
+  return { path: null, loaded: false };
 };
 
 export const startCliProcess = (): void => {
   import('child_process').then(({ spawn }) => {
-    import('path').then(({ join }) => {
+    import('path').then(() => {
       const nodeEnv = process.env.NODE_ENV || 'development';
       const { path: envFile, loaded } = loadEnvFile(nodeEnv);
       
