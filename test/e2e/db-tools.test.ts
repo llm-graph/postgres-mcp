@@ -3,13 +3,15 @@ import postgres from 'postgres';
 import { safeJsonStringify, createPostgresClient } from '../../src/utils';
 import { 
   setupTestDb, 
-  cleanupTestDb, 
+  cleanupTestDb,
+  type TestResources 
+} from '../unit/test-db-utils';
+import {
   retryDatabaseOperation, 
   setupSignalHandlers,
   registerTestResources,
-  performCleanup,
-  type TestResources
-} from '../test-utils';
+  performCleanup
+} from './test-helpers';
 
 // Test database configuration
 const TEST_DB_CONFIG = {

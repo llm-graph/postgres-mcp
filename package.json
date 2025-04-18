@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "type": "module",
   "bin": {
-    "postgres-mcp": "./dist/cli.js"
+    "postgres-mcp": "./dist/index.js"
   },
   "files": [
     "dist",
@@ -27,9 +27,9 @@
     "dev": "bun --watch src/index.ts",
     "test": "bun test",
     "inspect": "bunx fastmcp inspect src/index.ts",
-    "cli": "bunx fastmcp dev src/index.ts",
-    "dev-server": "bun src/dev.js",
-    "build": "bun build ./src/index.ts --outdir ./dist --target node --minify && bun build ./src/cli.ts --outdir ./dist --target node --minify && tsc --emitDeclarationOnly --outDir dist",
+    "cli": "bun run src/index.ts runCli",
+    "dev-server": "bun run src/index.ts startCliProcess",
+    "build": "bun build ./src/index.ts --outdir ./dist --target node --minify && tsc --emitDeclarationOnly --outDir dist",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {

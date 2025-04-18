@@ -215,4 +215,74 @@ export const detectDevEnvironment = (): boolean => {
     arg.includes('inspect') || 
     arg.includes('fastmcp')
   );
+};
+
+export const startCliProcess = (): void => {
+  import('child_process').then(({ spawn }) => {
+    import('dotenv').then((dotenv) => {
+      import('path').then(({ join }) => {
+        const result = dotenv.config({ path: join(process.cwd(), '.env') });
+        
+        if (result.error) {
+          console.error('Error loading .env file:', result.error);
+          console.error('Make sure .env file exists in project root and has correct format');
+        } else {
+          console.log('Environment variables loaded from .env file');
+          
+          console.log('Essential environment variables:');
+          console.log('DB_MAIN_HOST:', process.env['DB_MAIN_HOST'] || '(not set)');
+          console.log('DB_MAIN_NAME:', process.env['DB_MAIN_NAME'] || '(not set)');
+        }
+        
+        console.log('Starting MCP dev environment...');
+        
+        const mcpProcess = spawn('bunx', ['fastmcp', 'dev', 'src/index.ts'], {
+          stdio: 'inherit',
+          shell: true,
+          env: process.env
+        });
+        
+        mcpProcess.on('exit', (code) => {
+          if (code !== 0) {
+            console.error(`fastmcp exited with code ${code}`);
+          }
+          process.exit(code);
+        });
+        
+        process.on('SIGINT', () => {
+          console.log('Shutting down MCP server...');
+          if (mcpProcess) {
+            mcpProcess.kill();
+          }
+          process.exit(0);
+        });
+        
+        process.on('SIGTERM', () => {
+          console.log('Shutting down MCP server...');
+          if (mcpProcess) {
+            mcpProcess.kill();
+          }
+          process.exit(0);
+        });
+      });
+    });
+  });
+};
+
+export const runCli = (): void => {
+  import('./core').then(({ startServer }) => {
+    startServer();
+    
+    process.stdin.resume();
+    
+    process.on('SIGINT', () => {
+      console.log('Shutting down MCP server...');
+      process.exit(0);
+    });
+    
+    process.on('SIGTERM', () => {
+      console.log('Shutting down MCP server...');
+      process.exit(0);
+    });
+  });
 }; 

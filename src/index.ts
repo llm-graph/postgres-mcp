@@ -1,6 +1,7 @@
 // Load environment variables first
 import { config } from 'dotenv';
 import { startServer } from './core';
+import { runCli, startCliProcess } from './utils';
 
 // Load environment variables from .env file
 config();
@@ -25,5 +26,17 @@ const isMainModule = import.meta.url === undefined
   : new URL(import.meta.url).pathname === process.argv[1];
 
 if (isMainModule) {
-  startServer(); 
+  const args = process.argv.slice(2);
+  if (args.length > 0) {
+    if (args[0] === 'runCli') {
+      runCli();
+    } else if (args[0] === 'startCliProcess') {
+      startCliProcess();
+    } else {
+      console.log(`Unknown command: ${args[0]}`);
+      startServer();
+    }
+  } else {
+    startServer();
+  }
 } 
