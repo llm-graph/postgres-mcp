@@ -129,13 +129,28 @@ The npm package is available at [https://www.npmjs.com/package/postgres-mcp](htt
 
 ## 🔑 Configuration (Multi-Database & Optional Auth)
 
-Configure via environment variables, typically loaded from `.env`.
+Configure via environment variables, loaded from appropriate `.env` files.
 
-1.  **Create `.env` file:** `cp .env.example .env`
-2.  **Edit `.env`:** Define `DB_ALIASES`, `DEFAULT_DB_ALIAS`, database connection details (`DB_<ALIAS>_...`), and optional `ENABLE_AUTH`/`MCP_API_KEY`.
+1.  **Create environment files:**
+    - For production: `cp .env.example .env`
+    - For development: `cp .env.development.example .env.development`
+    
+2.  **Environment file loading order:**
+    The server loads environment variables from files in the following order of priority:
+    - `.env.<NODE_ENV>` (e.g., `.env.development`, `.env.production`, `.env.staging`)
+    - `.env.local` (for local overrides, not version controlled)
+    - `.env` (default fallback)
+    
+    This allows different configurations for different environments.
+
+3.  **Edit the environment files** to define database connections and authentication:
+    - `DB_ALIASES` - Comma-separated list of unique DB aliases
+    - `DEFAULT_DB_ALIAS` - Default alias if 'dbAlias' is omitted in tool calls
+    - Database connection details for each alias (e.g., `DB_MAIN_HOST`, `DB_REPORTING_HOST`)
+    - Optional API Key authentication (`ENABLE_AUTH`, `MCP_API_KEY`)
 
 ```dotenv
-# .env.example - Key Variables
+# Example .env file - Key Variables
 
 # REQUIRED: Comma-separated list of unique DB aliases
 DB_ALIASES=main,reporting
@@ -148,20 +163,15 @@ ENABLE_AUTH=false
 MCP_API_KEY=your_super_secret_api_key_here # CHANGE THIS
 
 # Define DB connection details for each alias (DB_MAIN_*, DB_REPORTING_*, etc.)
-# Example:
 DB_MAIN_HOST=localhost
 DB_MAIN_PORT=5432
 DB_MAIN_NAME=app_prod_db
-DB_MAIN_USER=app_user         # Needs permissions on information_schema
+DB_MAIN_USER=app_user
 DB_MAIN_PASSWORD=app_secret_password
-DB_MAIN_SSL=disable           # Recommend 'require' or stricter for prod
+DB_MAIN_SSL=disable
 
 # Alternative: Use connection URLs
 # DB_MAIN_URL=postgres://user:password@localhost:5432/database?sslmode=require
-
-DB_REPORTING_HOST=reporting-db.read-replica.internal
-# ... other reporting DB details ...
-DB_REPORTING_USER=readonly_reporter # Needs permissions on information_schema
 
 # --- Optional: Server Logging Level ---
 # LOG_LEVEL=info # debug, info, warn, error (defaults to info)

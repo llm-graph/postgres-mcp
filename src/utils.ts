@@ -217,53 +217,74 @@ export const detectDevEnvironment = (): boolean => {
   );
 };
 
+export const loadEnvFile = (environment?: string): { path: string; loaded: boolean } => {
+  const { config } = require('dotenv');
+  const { join } = require('path');
+  
+  const envFiles = [
+    environment ? `.env.${environment}` : null,
+    '.env.local',
+    '.env'
+  ].filter(Boolean);
+  
+  for (const file of envFiles) {
+    const envPath = join(process.cwd(), file);
+    const result = config({ path: envPath });
+    
+    if (!result.error) {
+      return { path: file, loaded: true };
+    }
+  }
+  
+  return { path: '.env', loaded: false };
+};
+
 export const startCliProcess = (): void => {
   import('child_process').then(({ spawn }) => {
-    import('dotenv').then((dotenv) => {
-      import('path').then(({ join }) => {
-        const result = dotenv.config({ path: join(process.cwd(), '.env') });
+    import('path').then(({ join }) => {
+      const nodeEnv = process.env.NODE_ENV || 'development';
+      const { path: envFile, loaded } = loadEnvFile(nodeEnv);
+      
+      if (!loaded) {
+        console.error(`Error loading environment files. Tried .env.${nodeEnv}, .env.local, and .env`);
+        console.error('Make sure at least one of these files exists in project root and has correct format');
+      } else {
+        console.log(`Environment variables loaded from ${envFile}`);
         
-        if (result.error) {
-          console.error('Error loading .env file:', result.error);
-          console.error('Make sure .env file exists in project root and has correct format');
-        } else {
-          console.log('Environment variables loaded from .env file');
-          
-          console.log('Essential environment variables:');
-          console.log('DB_MAIN_HOST:', process.env['DB_MAIN_HOST'] || '(not set)');
-          console.log('DB_MAIN_NAME:', process.env['DB_MAIN_NAME'] || '(not set)');
+        console.log('Essential environment variables:');
+        console.log('DB_MAIN_HOST:', process.env['DB_MAIN_HOST'] || '(not set)');
+        console.log('DB_MAIN_NAME:', process.env['DB_MAIN_NAME'] || '(not set)');
+      }
+      
+      console.log('Starting MCP dev environment...');
+      
+      const mcpProcess = spawn('bunx', ['fastmcp', 'dev', 'src/index.ts'], {
+        stdio: 'inherit',
+        shell: true,
+        env: process.env
+      });
+      
+      mcpProcess.on('exit', (code) => {
+        if (code !== 0) {
+          console.error(`fastmcp exited with code ${code}`);
         }
-        
-        console.log('Starting MCP dev environment...');
-        
-        const mcpProcess = spawn('bunx', ['fastmcp', 'dev', 'src/index.ts'], {
-          stdio: 'inherit',
-          shell: true,
-          env: process.env
-        });
-        
-        mcpProcess.on('exit', (code) => {
-          if (code !== 0) {
-            console.error(`fastmcp exited with code ${code}`);
-          }
-          process.exit(code);
-        });
-        
-        process.on('SIGINT', () => {
-          console.log('Shutting down MCP server...');
-          if (mcpProcess) {
-            mcpProcess.kill();
-          }
-          process.exit(0);
-        });
-        
-        process.on('SIGTERM', () => {
-          console.log('Shutting down MCP server...');
-          if (mcpProcess) {
-            mcpProcess.kill();
-          }
-          process.exit(0);
-        });
+        process.exit(code);
+      });
+      
+      process.on('SIGINT', () => {
+        console.log('Shutting down MCP server...');
+        if (mcpProcess) {
+          mcpProcess.kill();
+        }
+        process.exit(0);
+      });
+      
+      process.on('SIGTERM', () => {
+        console.log('Shutting down MCP server...');
+        if (mcpProcess) {
+          mcpProcess.kill();
+        }
+        process.exit(0);
       });
     });
   });

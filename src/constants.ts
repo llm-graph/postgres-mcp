@@ -1,10 +1,6 @@
-import { config } from 'dotenv';
 import type { DatabaseConfig, DatabaseConnections, ServerConfig } from './types';
 
-// Load environment variables from .env file
-config();
-
-console.log('Environment variables loaded from .env file');
+// Environment variables are now loaded in index.ts using loadEnvFile
 
 export const DEFAULT_SERVER_CONFIG: ServerConfig = {
   name: 'FastPostgresMCP',

@@ -1,10 +1,18 @@
 // Load environment variables first
-import { config } from 'dotenv';
-import { startServer } from './core';
-import { runCli, startCliProcess } from './utils';
+import { loadEnvFile } from './utils';
 
-// Load environment variables from .env file
-config();
+// Load environment variables from the appropriate .env file based on NODE_ENV
+const nodeEnv = process.env.NODE_ENV || 'development';
+const { path: envFile, loaded } = loadEnvFile(nodeEnv);
+
+if (loaded) {
+  console.log(`Environment variables loaded from ${envFile}`);
+} else {
+  console.warn(`Failed to load environment variables from .env.${nodeEnv}, .env.local, or .env`);
+}
+
+import { startServer, createPostgresMcp } from './core';
+import { runCli, startCliProcess } from './utils';
 
 // Export core functionality
 export { startServer, createPostgresMcp } from './core';
