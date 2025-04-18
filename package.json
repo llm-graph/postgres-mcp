@@ -1,6 +1,6 @@
 {
   "name": "postgres-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A blazing fast, type-safe MCP Server for AI Agents to interact with multiple PostgreSQL databases",
   "module": "dist/index.js",
   "main": "dist/index.js",
