@@ -29,7 +29,7 @@
     "inspect": "bunx fastmcp inspect src/index.ts",
     "cli": "bun run src/index.ts runCli",
     "dev-server": "bun run src/index.ts startCliProcess",
-    "build": "bun build ./src/index.ts --outdir ./dist --target node --minify && tsc --emitDeclarationOnly --outDir dist",
+    "build": "bun build ./src/index.ts --outdir ./dist --target node --minify --external fastmcp --external postgres --external dotenv --external @modelcontextprotocol/sdk --external effect --external zod --format esm --tree-shaking=true && bun build ./src/utils.ts --outfile ./dist/cli.js --target node --minify --external fastmcp --external postgres --external dotenv --external @modelcontextprotocol/sdk --external effect --external zod --format esm --tree-shaking=true && tsc --emitDeclarationOnly --outDir dist",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {

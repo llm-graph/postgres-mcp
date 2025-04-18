@@ -6,7 +6,9 @@ import {
   loadEnableAuth,
   loadApiKey,
   createDbConfigFromEnv,
-  getServerConfig
+  getServerConfig,
+  validateEnvVars,
+  loadDatabaseConnections
 } from '../../src/constants';
 
 describe('Constants', () => {
@@ -34,6 +36,16 @@ describe('Constants', () => {
   
   test('loadDbAliases returns default when env not set', () => {
     expect(loadDbAliases()).toEqual(['main']);
+  });
+  
+  test('loadDbAliases handles whitespace in alias list', () => {
+    process.env['DB_ALIASES'] = 'main, reporting , analytics';
+    expect(loadDbAliases()).toEqual(['main', 'reporting', 'analytics']);
+  });
+  
+  test('loadDbAliases handles empty alias names', () => {
+    process.env['DB_ALIASES'] = 'main,,reporting';
+    expect(loadDbAliases()).toEqual(['main', '', 'reporting']);
   });
   
   test('loadDefaultDbAlias returns from DEFAULT_DB_ALIAS', () => {
@@ -129,5 +141,127 @@ describe('Constants', () => {
     expect(config.ssl).toBe('require');
     
     delete process.env['DB_TEST_URL'];
+  });
+  
+  test('createDbConfigFromEnv handles URLs with no port', () => {
+    process.env['DB_TEST_URL'] = 'postgresql://user:pass@hostname/dbname';
+    
+    const config = createDbConfigFromEnv('test');
+    
+    expect(config.host).toBe('hostname');
+    expect(config.port).toBe(5432); // Default port
+    expect(config.database).toBe('dbname');
+    expect(config.user).toBe('user');
+    expect(config.password).toBe('pass');
+    
+    delete process.env['DB_TEST_URL'];
+  });
+  
+  test('createDbConfigFromEnv handles URLs with special characters in password', () => {
+    process.env['DB_TEST_URL'] = 'postgresql://user:p%40ssw%23rd@hostname/dbname';
+    
+    const config = createDbConfigFromEnv('test');
+    
+    expect(config.host).toBe('hostname');
+    expect(config.user).toBe('user');
+    expect(config.password).toBe('p@ssw#rd'); // Decoded special characters
+    
+    delete process.env['DB_TEST_URL'];
+  });
+  
+  test('createDbConfigFromEnv handles invalid URL and falls back to env vars', () => {
+    process.env['DB_TEST_URL'] = 'invalid-url';
+    process.env['DB_TEST_HOST'] = 'fallback-host';
+    
+    const config = createDbConfigFromEnv('test');
+    
+    expect(config.host).toBe('fallback-host');
+    expect(config.port).toBe(5432);
+    
+    delete process.env['DB_TEST_URL'];
+    delete process.env['DB_TEST_HOST'];
+  });
+  
+  test('validateEnvVars returns true when required vars are present', () => {
+    process.env['DB_MAIN_HOST'] = 'localhost';
+    process.env['DB_MAIN_NAME'] = 'postgres';
+    
+    expect(validateEnvVars()).toBe(true);
+    
+    delete process.env['DB_MAIN_HOST'];
+    delete process.env['DB_MAIN_NAME'];
+  });
+  
+  test('validateEnvVars returns true for valid URL-based config', () => {
+    process.env['DB_MAIN_URL'] = 'postgresql://postgres:password@localhost:5432/postgres';
+    
+    expect(validateEnvVars()).toBe(true);
+    
+    delete process.env['DB_MAIN_URL'];
+  });
+  
+  test('validateEnvVars returns false when host is missing', () => {
+    process.env['DB_MAIN_NAME'] = 'postgres';
+    // No host specified
+    
+    expect(validateEnvVars()).toBe(false);
+    
+    delete process.env['DB_MAIN_NAME'];
+  });
+  
+  test('validateEnvVars returns false when database name is missing', () => {
+    process.env['DB_MAIN_HOST'] = 'localhost';
+    // No database name specified
+    
+    expect(validateEnvVars()).toBe(false);
+    
+    delete process.env['DB_MAIN_HOST'];
+  });
+  
+  test('validateEnvVars returns false for invalid URL', () => {
+    process.env['DB_MAIN_URL'] = 'invalid-url';
+    
+    expect(validateEnvVars()).toBe(false);
+    
+    delete process.env['DB_MAIN_URL'];
+  });
+  
+  test('validateEnvVars sets default values for non-critical vars', () => {
+    process.env['DB_MAIN_HOST'] = 'localhost';
+    process.env['DB_MAIN_NAME'] = 'postgres';
+    // No port or user specified
+    
+    expect(validateEnvVars()).toBe(true);
+    
+    // Should set defaults
+    expect(process.env['DB_MAIN_PORT']).toBe('5432');
+    expect(process.env['DB_MAIN_USER']).toBe('postgres');
+    
+    delete process.env['DB_MAIN_HOST'];
+    delete process.env['DB_MAIN_NAME'];
+    delete process.env['DB_MAIN_PORT'];
+    delete process.env['DB_MAIN_USER'];
+  });
+  
+  test('loadDatabaseConnections creates configs for all aliases', () => {
+    process.env['DB_ALIASES'] = 'main,test';
+    process.env['DB_MAIN_HOST'] = 'main-host';
+    process.env['DB_MAIN_NAME'] = 'main-db';
+    process.env['DB_TEST_HOST'] = 'test-host';
+    process.env['DB_TEST_NAME'] = 'test-db';
+    
+    const connections = loadDatabaseConnections();
+    
+    expect(Object.keys(connections)).toEqual(['main', 'test']);
+    expect(connections.main.host).toBe('main-host');
+    expect(connections.main.database).toBe('main-db');
+    expect(connections.test.host).toBe('test-host');
+    expect(connections.test.database).toBe('test-db');
+    
+    delete process.env['DB_ALIASES'];
+    delete process.env['DB_MAIN_HOST'];
+    delete process.env['DB_MAIN_NAME'];
+    delete process.env['DB_TEST_HOST'];
+    delete process.env['DB_TEST_NAME'];
   });
 }); 
