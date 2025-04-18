@@ -12,7 +12,9 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "docs/programmatic-api.md",
+    "examples"
   ],
   "exports": {
     ".": {
@@ -26,11 +28,14 @@
     "test": "bun test",
     "inspect": "bunx fastmcp inspect src/index.ts",
     "cli": "bunx fastmcp dev src/index.ts",
+    "dev-server": "bun src/dev.js",
     "build": "bun build ./src/index.ts --outdir ./dist --target node --minify && bun build ./src/cli.ts --outdir ./dist --target node --minify && tsc --emitDeclarationOnly --outDir dist",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.0",
     "@valibot/to-json-schema": "latest",
+    "dotenv": "^16.5.0",
     "effect": "latest",
     "fastmcp": "latest",
     "postgres": "latest",
@@ -50,7 +55,9 @@
     "cursor",
     "claude",
     "sql",
-    "fastmcp"
+    "fastmcp",
+    "library",
+    "api"
   ],
   "author": "",
   "license": "MIT",

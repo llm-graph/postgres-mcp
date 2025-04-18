@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FastMCP } from 'fastmcp';
 
 export type DatabaseConfig = {
   host: string;
@@ -17,6 +18,51 @@ export type ServerConfig = {
   defaultDbAlias: string;
   enableAuth: boolean;
   apiKey?: string;
+};
+
+export type PostgresCapabilities = {
+  features: Array<'query' | 'execute' | 'schema' | 'transaction'>;
+  dbAliases: string[];
+};
+
+export type ServerCapabilities = {
+  postgres: PostgresCapabilities;
+};
+
+// New type for programmatic API configuration
+export type PostgresMcpOptions = {
+  // Optional custom database configurations
+  databaseConfigs?: Record<string, DatabaseConfig>;
+  // Optional server configuration override
+  serverConfig?: Partial<ServerConfig>;
+  // Whether to start the server immediately (default: false when used programmatically)
+  autoStart?: boolean;
+  // Transport options for the MCP server
+  transport?: 'stdio' | 'sse' | 'http';
+  // Port for http/sse transports
+  port?: number;
+};
+
+// Type for the PostgresMcp instance returned by createPostgresMcp
+export type PostgresMcp = {
+  // The underlying FastMCP server instance
+  server: FastMCP<Record<string, unknown>>;
+  // Start the MCP server
+  start: () => void;
+  // Stop the MCP server and close database connections
+  stop: () => Promise<void>;
+  // Access the database connections
+  connections: Record<string, any>;
+  // Execute a SQL query on a specific database
+  executeQuery: (statement: string, params?: any[], dbAlias?: string) => Promise<string>;
+  // Execute a SQL command on a specific database
+  executeCommand: (statement: string, params?: any[], dbAlias?: string) => Promise<string>;
+  // Execute a transaction on a specific database
+  executeTransaction: (operations: Operation[], dbAlias?: string) => Promise<string>;
+  // Get schema for a specific table
+  getTableSchema: (tableName: string, dbAlias?: string) => Promise<any>;
+  // Get all tables in a database
+  listTables: (dbAlias?: string) => Promise<string[]>;
 };
 
 export const QueryToolParamsSchema = z.object({
@@ -41,6 +87,12 @@ export const SchemaToolParamsSchema = z.object({
 });
 
 export type SchemaToolParams = z.infer<typeof SchemaToolParamsSchema>;
+
+export const AllSchemasToolParamsSchema = z.object({
+  dbAlias: z.string().optional()
+});
+
+export type AllSchemasToolParams = z.infer<typeof AllSchemasToolParamsSchema>;
 
 export const Operation = z.object({
   statement: z.string(),

@@ -2,9 +2,22 @@ import { spawnSync } from 'child_process';
 import { sleep } from 'bun';
 import { writeFileSync, existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import postgres from 'postgres';
 
 // Use a sentinel file to track if Docker container is running
 const DOCKER_SENTINEL = join(process.cwd(), '.docker-container-running');
+
+// Type definition for test resources to be cleaned up
+export type TestResources = {
+  sql?: postgres.Sql<{}>;
+  useDockerDb: boolean;
+  originalDbAlias?: string;
+  isCleanedUp: boolean;
+  dbConfig?: any;
+};
+
+// Global test resources registry - allows cleanup from any context
+const globalTestResources: TestResources[] = [];
 
 const isDockerRunning = (): boolean => {
   process.stdout.write('Checking if Docker is running... ');
@@ -167,6 +180,125 @@ export const cleanupTestDb = async (): Promise<void> => {
   }
 };
 
+/**
+ * Utility function to retry database operations with backoff
+ */
+export const retryDatabaseOperation = async <T>(
+  operation: () => Promise<T>,
+  retries = 3,
+  delay = 2000
+): Promise<T> => {
+  let lastError: unknown;
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) {
+        console.log(`Database operation failed, retrying (${attempt}/${retries})...`);
+        await sleep(delay);
+      }
+    }
+  }
+  
+  throw lastError;
+};
+
+/**
+ * Register test resources for cleanup. 
+ * This allows resources to be cleaned up even if tests are interrupted.
+ */
+export const registerTestResources = (resources: TestResources): number => {
+  globalTestResources.push(resources);
+  return globalTestResources.length - 1;
+};
+
+/**
+ * Cleanup all resources associated with a test.
+ * This function is safe to call multiple times.
+ */
+export const performCleanup = async (resources: TestResources): Promise<void> => {
+  // Only run cleanup once
+  if (resources.isCleanedUp) {
+    return;
+  }
+  
+  console.log('┌─────────────────────────────────────────────────┐');
+  console.log('│ Running test cleanup                            │');
+  console.log('└─────────────────────────────────────────────────┘');
+  
+  try {
+    // Close database connection with timeout
+    if (resources.sql) {
+      console.log('Closing database connection...');
+      await Promise.race([
+        resources.sql.end(),
+        new Promise(resolve => setTimeout(() => {
+          console.log('Database connection close timeout reached, continuing...');
+          resolve(null);
+        }, 3000))
+      ]);
+      resources.sql = undefined;
+    }
+    
+    if (resources.useDockerDb) {
+      // Restore environment variables
+      if (resources.originalDbAlias) {
+        process.env['DEFAULT_DB_ALIAS'] = resources.originalDbAlias;
+      } else {
+        delete process.env['DEFAULT_DB_ALIAS'];
+      }
+      
+      // Clean up other environment variables
+      delete process.env['DB_ALIASES'];
+      delete process.env['DB_MAIN_HOST'];
+      delete process.env['DB_MAIN_PORT'];
+      delete process.env['DB_MAIN_NAME'];
+      delete process.env['DB_MAIN_USER'];
+      delete process.env['DB_MAIN_PASSWORD'];
+      delete process.env['DB_MAIN_SSL'];
+      
+      // Cleanup Docker with timeout
+      console.log('Cleaning up Docker container...');
+      try {
+        await Promise.race([
+          cleanupTestDb(),
+          new Promise((_, reject) => setTimeout(() => {
+            console.log('Docker cleanup timeout reached, continuing...');
+            reject(new Error('Docker cleanup timeout'));
+          }, 5000))
+        ]);
+      } catch (error) {
+        console.error('Docker cleanup error or timeout:', error);
+        // Still mark as cleaned up even if Docker cleanup times out
+      }
+    }
+    
+    resources.isCleanedUp = true;
+    console.log('┌─────────────────────────────────────────────────┐');
+    console.log('│ Test cleanup complete                           │');
+    console.log('└─────────────────────────────────────────────────┘');
+  } catch (error) {
+    console.error('Error during cleanup:', error);
+    resources.isCleanedUp = true;
+  }
+};
+
+/**
+ * Cleanup function that handles all registered resources
+ */
+export const cleanupAllResources = async (): Promise<void> => {
+  console.log(`Cleaning up ${globalTestResources.length} registered test resources...`);
+  
+  for (const resources of globalTestResources) {
+    await performCleanup(resources);
+  }
+  
+  // Clear the array
+  globalTestResources.length = 0;
+};
+
 export const setupTestDb = async (): Promise<boolean> => {
   console.log('┌─────────────────────────────────────────────────┐');
   console.log('│ Setting up PostgreSQL database for testing      │');
@@ -197,35 +329,28 @@ export const setupTestDb = async (): Promise<boolean> => {
   return success;
 };
 
-// Keep the exit handler for safety but make it async
-const asyncCleanupHandler = async () => {
-  console.log('Running final cleanup on exit...');
-  if (existsSync(DOCKER_SENTINEL) && isDockerRunning()) {
-    await cleanupTestDb();
-  }
-};
-
-// Register cleanup handler
-process.on('exit', () => {
-  // On exit we need to use the sync version
-  if (existsSync(DOCKER_SENTINEL) && isDockerRunning()) {
-    console.log('Final cleanup on exit...');
-    spawnSync('docker', ['compose', '-f', 'docker-compose.test.yml', 'down'], { stdio: 'pipe' });
-    try {
-      unlinkSync(DOCKER_SENTINEL);
-    } catch (e) {
-      // Ignore
-    }
-  }
-});
-
-// Also register for SIGINT and SIGTERM for cleaner shutdowns
-process.on('SIGINT', async () => {
-  await asyncCleanupHandler();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  await asyncCleanupHandler();
-  process.exit(0);
-}); 
+/**
+ * Sets up signal handlers for graceful shutdown
+ */
+export const setupSignalHandlers = (): void => {
+  // SIGTERM handler for Docker/CI environments
+  process.on('SIGTERM', async () => {
+    console.log('Received SIGTERM signal, cleaning up...');
+    await cleanupAllResources();
+    process.exit(0);
+  });
+  
+  // SIGINT handler for Ctrl+C in terminal
+  process.on('SIGINT', async () => {
+    console.log('Received SIGINT signal, cleaning up...');
+    await cleanupAllResources();
+    process.exit(0);
+  });
+  
+  // Handle uncaught exceptions as well
+  process.on('uncaughtException', async (error) => {
+    console.error('Uncaught exception:', error);
+    await cleanupAllResources();
+    process.exit(1);
+  });
+}; 

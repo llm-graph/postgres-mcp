@@ -20,6 +20,51 @@ It is built with Bun, TypeScript, `postgres`, and leverages advanced features of
 
 This is **not** a library to be imported into your code. It is a **standalone server application**. You run it as a process, and MCP clients (like AI agents) communicate with it using the JSON-based Model Context Protocol (v2.0), typically over a `stdio` connection managed by the client application (e.g., Cursor).
 
+## Troubleshooting and Development
+
+### Using the CLI for Testing
+
+The package includes a built-in CLI command for testing the MCP server directly:
+
+```bash
+# From the project repository:
+bun run cli
+
+# This will start an interactive MCP CLI session where you can:
+# - Call any of the PostgreSQL tools (query_tool, execute_tool, etc.)
+# - View server capabilities
+# - Test queries against your configured databases
+```
+
+### Testing with Built-in MCP Inspector
+
+You can also use the MCP Inspector to visually test and debug:
+
+```bash
+# From the project repository:
+bun run inspect
+```
+
+### Common Issues
+
+If you see this error when running `bunx postgres-mcp`:
+```
+FastPostgresMCP started
+[warning] FastMCP could not infer client capabilities
+```
+
+followed by ping messages, it means:
+
+1. The MCP server started successfully
+2. The client connected successfully 
+3. But the client is only sending ping requests and not properly negotiating capabilities
+
+This usually indicates you need to use a proper MCP client. Try:
+- Using `bun run cli` to test with the MCP CLI
+- Configuring the MCP server in Cursor or Claude Desktop as described in the Installation section
+
+If you're developing a custom MCP client, make sure it properly implements the MCP protocol including capabilities negotiation.
+
 ## ✨ Core Features
 
 *   **🚀 Blazing Fast:** Built on Bun and `fastmcp`.
@@ -148,6 +193,60 @@ Run this server directly using Bun. The AI Client (like Cursor) will typically s
 
 *   **Interactive Terminal:** `bunx fastmcp dev src/index.ts`
 *   **Web UI Inspector:** `bunx fastmcp inspect src/index.ts`
+
+## 💻 Using the Programmatic API (as a Library)
+
+In addition to running as a standalone MCP server, postgres-mcp can also be used programmatically as a library in your Node.js/TypeScript applications.
+
+### Basic Usage
+
+```typescript
+import { createPostgresMcp } from 'postgres-mcp';
+
+// Create the PostgresMcp instance
+const postgresMcp = createPostgresMcp();
+
+// Start the server
+postgresMcp.start();
+
+// Direct database operations
+const results = await postgresMcp.executeQuery(
+  'SELECT * FROM users WHERE role = $1',
+  ['admin'],
+  'main' // optional database alias
+);
+
+// When done, stop the server and close connections
+await postgresMcp.stop();
+```
+
+### Configuration Options
+
+```typescript
+const postgresMcp = createPostgresMcp({
+  // Custom database configurations (override .env)
+  databaseConfigs: {
+    main: {
+      host: 'localhost',
+      port: 5432,
+      database: 'app_db',
+      user: 'app_user',
+      password: 'password',
+      ssl: 'disable'
+    }
+  },
+  // Server configuration
+  serverConfig: {
+    name: 'Custom PostgresMCP',
+    defaultDbAlias: 'main'
+  },
+  // Transport options: 'stdio', 'sse', or 'http'
+  transport: 'http',
+  port: 3456
+});
+```
+
+For complete documentation on the programmatic API, see [docs/programmatic-api.md](docs/programmatic-api.md).
 
 ## 🔌 Connecting with AI Clients (Cursor, Claude Desktop)
 

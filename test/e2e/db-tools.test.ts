@@ -1,7 +1,15 @@
 import { describe, expect, test, beforeAll, afterAll } from 'bun:test';
 import postgres from 'postgres';
 import { safeJsonStringify, createPostgresClient } from '../../src/utils';
-import { setupTestDb, cleanupTestDb } from '../test-utils';
+import { 
+  setupTestDb, 
+  cleanupTestDb, 
+  retryDatabaseOperation, 
+  setupSignalHandlers,
+  registerTestResources,
+  performCleanup,
+  type TestResources
+} from '../test-utils';
 
 // Test database configuration
 const TEST_DB_CONFIG = {
@@ -13,27 +21,10 @@ const TEST_DB_CONFIG = {
   ssl: 'disable'
 };
 
-// Add a retry function for database operations
-const retryDatabaseOperation = async <T>(
-  operation: () => Promise<T>,
-  retries = 3,
-  delay = 2000
-): Promise<T> => {
-  let lastError: unknown;
-  
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-      if (attempt < retries) {
-        console.log(`Database operation failed, retrying (${attempt}/${retries})...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-  }
-  
-  throw lastError;
+// Create test resources object for tracking and cleanup
+const testResources: TestResources = {
+  useDockerDb: true,
+  isCleanedUp: false
 };
 
 describe('Database MCP Tools E2E', () => {
@@ -48,20 +39,24 @@ describe('Database MCP Tools E2E', () => {
     }>;
   };
   let sql: postgres.Sql<{}>;
-  let originalDbAlias: string | undefined;
-  let useDockerDb = true;
   let actualDbConfig: any;
   
   // Set up test environment with real PostgreSQL in Docker or use existing database
   beforeAll(async () => {
+    // Setup signal handlers for cleanup
+    setupSignalHandlers();
+    
+    // Register resources for cleanup
+    registerTestResources(testResources);
+    
     // Save original environment variables
-    originalDbAlias = process.env['DEFAULT_DB_ALIAS'];
+    testResources.originalDbAlias = process.env['DEFAULT_DB_ALIAS'];
     
     // Check if we should use an existing remote database
     const existingDbHost = process.env['DB_MAIN_HOST'];
-    useDockerDb = !existingDbHost || existingDbHost === 'localhost' || existingDbHost === '127.0.0.1';
+    testResources.useDockerDb = !existingDbHost || existingDbHost === 'localhost' || existingDbHost === '127.0.0.1';
     
-    if (useDockerDb) {
+    if (testResources.useDockerDb) {
       console.log('┌─────────────────────────────────────────────────┐');
       console.log('│ Setting up PostgreSQL in Docker for testing...  │');
       console.log('└─────────────────────────────────────────────────┘');
@@ -92,7 +87,7 @@ describe('Database MCP Tools E2E', () => {
     try {
       console.log('Configuring test database...');
       
-      if (useDockerDb) {
+      if (testResources.useDockerDb) {
         // Connect to PostgreSQL admin database with retries for Docker setup
         const adminSql = await retryDatabaseOperation(async () => {
           return createPostgresClient({
@@ -115,6 +110,10 @@ describe('Database MCP Tools E2E', () => {
         return createPostgresClient(actualDbConfig);
       });
       
+      // Store SQL connection for cleanup
+      testResources.sql = sql;
+      testResources.dbConfig = actualDbConfig;
+      
       console.log('Creating test tables and data...');
       // Create test tables
       await sql.unsafe(`
@@ -136,7 +135,7 @@ describe('Database MCP Tools E2E', () => {
         ('User Two', 'user2@example.com')
       `);
       
-      if (useDockerDb) {
+      if (testResources.useDockerDb) {
         console.log('Configuring environment...');
         // Configure environment for MCP server when using Docker
         process.env['DB_ALIASES'] = 'main';
@@ -162,7 +161,7 @@ describe('Database MCP Tools E2E', () => {
           },
           {
             name: 'schema_tool',
-            execute: async ({ tableName }: any) => {
+            execute: async ({ tableName, dbAlias }: any) => {
               const result = await sql.unsafe(
                 'SELECT column_name, data_type, is_nullable, column_default ' +
                 'FROM information_schema.columns ' +
@@ -175,7 +174,7 @@ describe('Database MCP Tools E2E', () => {
           },
           {
             name: 'execute_tool',
-            execute: async ({ statement, params }: any) => {
+            execute: async ({ statement, params, dbAlias }: any) => {
               const result = await sql.unsafe(statement, params || []);
               return `Rows affected: ${result.count || 0}`;
             }
@@ -217,6 +216,33 @@ describe('Database MCP Tools E2E', () => {
                 });
               }
             }
+          },
+          {
+            name: 'all_schemas_tool',
+            execute: async ({ dbAlias }: any) => {
+              // First get table list
+              const tables = await sql.unsafe(
+                'SELECT table_name FROM information_schema.tables ' +
+                'WHERE table_schema = \'public\' AND table_type = \'BASE TABLE\' ' +
+                'ORDER BY table_name'
+              );
+              
+              // Then get schema for each table
+              const result: Record<string, any[]> = {};
+              for (const table of tables) {
+                const tableName = table.table_name;
+                const schema = await sql.unsafe(
+                  'SELECT column_name, data_type, is_nullable, column_default ' +
+                  'FROM information_schema.columns ' +
+                  'WHERE table_schema = \'public\' AND table_name = $1 ' +
+                  'ORDER BY ordinal_position',
+                  [tableName]
+                );
+                result[tableName] = schema;
+              }
+              
+              return safeJsonStringify(result);
+            }
           }
         ],
         resourceTemplates: [
@@ -243,6 +269,33 @@ describe('Database MCP Tools E2E', () => {
               );
               return { text: safeJsonStringify(schema) };
             }
+          },
+          {
+            uriTemplate: 'db://{dbAlias}/schema/all',
+            load: async ({}: any) => {
+              // First get table list
+              const tables = await sql.unsafe(
+                'SELECT table_name FROM information_schema.tables ' +
+                'WHERE table_schema = \'public\' AND table_type = \'BASE TABLE\' ' +
+                'ORDER BY table_name'
+              );
+              
+              // Then get schema for each table
+              const result: Record<string, any[]> = {};
+              for (const table of tables) {
+                const tableName = table.table_name;
+                const schema = await sql.unsafe(
+                  'SELECT column_name, data_type, is_nullable, column_default ' +
+                  'FROM information_schema.columns ' +
+                  'WHERE table_schema = \'public\' AND table_name = $1 ' +
+                  'ORDER BY ordinal_position',
+                  [tableName]
+                );
+                result[tableName] = schema;
+              }
+              
+              return { text: safeJsonStringify(result) };
+            }
           }
         ]
       };
@@ -253,60 +306,14 @@ describe('Database MCP Tools E2E', () => {
     } catch (error) {
       console.error('Failed to set up PostgreSQL for testing:', error);
       // Clean up Docker container if setup fails
-      cleanupTestDb();
+      await performCleanup(testResources);
       throw new Error(`PostgreSQL connection failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
 
-  // Cleanup after tests - run in a non-blocking way to ensure we get test summary
+  // Cleanup after tests using our shared cleanup function
   afterAll(async () => {
-    console.log('┌─────────────────────────────────────────────────┐');
-    console.log('│ Running test cleanup                            │');
-    console.log('└─────────────────────────────────────────────────┘');
-    
-    // Using a try/finally to ensure cleanup happens regardless of errors
-    try {
-      // Close database connection
-      if (sql) {
-        console.log('Closing database connection...');
-        await sql.end();
-      }
-      
-      if (useDockerDb) {
-        // Restore environment variables if we changed them
-        if (originalDbAlias) {
-          process.env['DEFAULT_DB_ALIAS'] = originalDbAlias;
-        } else {
-          delete process.env['DEFAULT_DB_ALIAS'];
-        }
-        
-        // Clean up other environment variables
-        delete process.env['DB_ALIASES'];
-        delete process.env['DB_MAIN_HOST'];
-        delete process.env['DB_MAIN_PORT'];
-        delete process.env['DB_MAIN_NAME'];
-        delete process.env['DB_MAIN_USER'];
-        delete process.env['DB_MAIN_PASSWORD'];
-        delete process.env['DB_MAIN_SSL'];
-        
-        // Use Promise.race to ensure we don't hang indefinitely
-        console.log('Cleaning up Docker container...');
-        const cleanup = cleanupTestDb();
-        
-        // Run cleanup but ensure it doesn't block test completion
-        // This ensures test summary is still visible even if cleanup hangs
-        await Promise.race([
-          Promise.resolve(cleanup),
-          new Promise(resolve => setTimeout(resolve, 5000))
-        ]);
-      }
-      
-      console.log('┌─────────────────────────────────────────────────┐');
-      console.log('│ Test cleanup complete                           │');
-      console.log('└─────────────────────────────────────────────────┘');
-    } catch (error) {
-      console.error('Error during cleanup:', error);
-    }
+    await performCleanup(testResources);
   });
 
   test('query_tool: should return users from database', async () => {
@@ -326,8 +333,43 @@ describe('Database MCP Tools E2E', () => {
     const parsed = JSON.parse(result);
     expect(parsed).toBeInstanceOf(Array);
     expect(parsed.length).toBe(2);
-    expect(parsed[0]['name']).toBe('User One');
-    expect(parsed[1]['email']).toBe('user2@example.com');
+    
+    // More thorough validation of all fields in the response
+    const user1 = parsed[0];
+    const user2 = parsed[1];
+    
+    // Validate first user record completely
+    expect(user1.id).toBe(1);
+    expect(user1.name).toBe('User One');
+    expect(user1.email).toBe('user1@example.com');
+    expect(user1.created_at).toBeDefined();
+    expect(new Date(user1.created_at).toISOString()).not.toBeNaN();
+    
+    // Validate second user record completely
+    expect(user2.id).toBe(2);
+    expect(user2.name).toBe('User Two');
+    expect(user2.email).toBe('user2@example.com');
+    expect(user2.created_at).toBeDefined();
+    expect(new Date(user2.created_at).toISOString()).not.toBeNaN();
+  });
+
+  test('query_tool: should handle empty result sets properly', async () => {
+    const queryTool = server.tools.find((tool: any) => tool.name === 'query_tool')!;
+    const result = await queryTool.execute(
+      {
+        statement: 'SELECT * FROM test_users WHERE email = $1',
+        params: ['nonexistent@example.com'],
+        dbAlias: 'main'
+      },
+      { log: console }
+    );
+
+    expect(result).toBeDefined();
+    expect(typeof result).toBe('string');
+    
+    const parsed = JSON.parse(result);
+    expect(parsed).toBeInstanceOf(Array);
+    expect(parsed.length).toBe(0);
   });
 
   test('schema_tool: should return table schema information', async () => {
@@ -346,11 +388,105 @@ describe('Database MCP Tools E2E', () => {
     const parsed = JSON.parse(result);
     expect(parsed).toBeInstanceOf(Array);
     
-    // Find the name column definition
-    const nameColumn = parsed.find((col: any) => col['column_name'] === 'name');
-    expect(nameColumn).toBeDefined();
-    expect(nameColumn['data_type']).toBe('text');
-    expect(nameColumn['is_nullable']).toBe('NO');
+    // Should have 4 columns in test_users
+    expect(parsed.length).toBe(4);
+    
+    // Organize columns by name for easier verification
+    const columns: Record<string, any> = {};
+    parsed.forEach((col: any) => {
+      columns[col.column_name] = col;
+    });
+    
+    // Verify id column
+    expect(columns.id).toBeDefined();
+    expect(columns.id.data_type).toBe('integer');
+    expect(columns.id.is_nullable).toBe('NO');
+    expect(columns.id.column_default).toContain('nextval');
+    
+    // Verify name column
+    expect(columns.name).toBeDefined();
+    expect(columns.name.data_type).toBe('text');
+    expect(columns.name.is_nullable).toBe('NO');
+    expect(columns.name.column_default).toBeNull();
+    
+    // Verify email column
+    expect(columns.email).toBeDefined();
+    expect(columns.email.data_type).toBe('text');
+    expect(columns.email.is_nullable).toBe('NO');
+    expect(columns.email.column_default).toBeNull();
+    
+    // Verify created_at column
+    expect(columns.created_at).toBeDefined();
+    expect(columns.created_at.data_type).toBe('timestamp with time zone');
+    expect(columns.created_at.is_nullable).toBe('YES');
+    expect(columns.created_at.column_default).toContain('CURRENT_TIMESTAMP');
+  });
+
+  test('schema_tool: should handle non-existent tables gracefully', async () => {
+    const schemaTool = server.tools.find((tool: any) => tool.name === 'schema_tool')!;
+    const result = await schemaTool.execute(
+      {
+        tableName: 'nonexistent_table',
+        dbAlias: 'main'
+      },
+      { log: console }
+    );
+
+    expect(result).toBeDefined();
+    expect(typeof result).toBe('string');
+    
+    const parsed = JSON.parse(result);
+    expect(parsed).toBeInstanceOf(Array);
+    expect(parsed.length).toBe(0);
+  });
+
+  test('all_schemas_tool: should return schemas for all tables', async () => {
+    const allSchemasTool = server.tools.find((tool: any) => tool.name === 'all_schemas_tool')!;
+    const result = await allSchemasTool.execute(
+      {
+        dbAlias: 'main'
+      },
+      { log: console }
+    );
+
+    expect(result).toBeDefined();
+    expect(typeof result).toBe('string');
+    
+    const parsed = JSON.parse(result);
+    expect(parsed).toBeInstanceOf(Object);
+    
+    // Expect the test_users table to be present
+    expect(parsed['test_users']).toBeDefined();
+    expect(parsed['test_users']).toBeInstanceOf(Array);
+    
+    // Should have 4 columns in test_users
+    expect(parsed['test_users'].length).toBe(4);
+    
+    // Organize columns by name for easier verification
+    const columns: Record<string, any> = {};
+    parsed['test_users'].forEach((col: any) => {
+      columns[col.column_name] = col;
+    });
+    
+    // Verify id column
+    expect(columns.id).toBeDefined();
+    expect(columns.id.data_type).toBe('integer');
+    expect(columns.id.is_nullable).toBe('NO');
+    
+    // Verify name column
+    expect(columns.name).toBeDefined();
+    expect(columns.name.data_type).toBe('text');
+    expect(columns.name.is_nullable).toBe('NO');
+    
+    // Verify email column
+    expect(columns.email).toBeDefined();
+    expect(columns.email.data_type).toBe('text');
+    expect(columns.email.is_nullable).toBe('NO');
+    
+    // Verify created_at column
+    expect(columns.created_at).toBeDefined();
+    expect(columns.created_at.data_type).toBe('timestamp with time zone');
+    expect(columns.created_at.is_nullable).toBe('YES');
   });
 
   test('execute_tool: should insert a new record', async () => {
@@ -366,12 +502,38 @@ describe('Database MCP Tools E2E', () => {
 
     expect(result).toBeDefined();
     expect(typeof result).toBe('string');
-    expect(result).toContain('Rows affected: 1');
+    expect(result).toBe('Rows affected: 1');
 
-    // Verify the insert succeeded
+    // Verify the insert succeeded with complete record verification
     const queryResult = await sql.unsafe('SELECT * FROM test_users WHERE email = $1', ['user3@example.com']);
     expect(queryResult.length).toBe(1);
-    expect(queryResult[0]['name']).toBe('User Three');
+    expect(queryResult[0].id).toBe(3);
+    expect(queryResult[0].name).toBe('User Three');
+    expect(queryResult[0].email).toBe('user3@example.com');
+    expect(queryResult[0].created_at).toBeDefined();
+  });
+
+  test('execute_tool: should update existing records', async () => {
+    const executeTool = server.tools.find((tool: any) => tool.name === 'execute_tool')!;
+    const result = await executeTool.execute(
+      {
+        statement: 'UPDATE test_users SET name = $1 WHERE email = $2',
+        params: ['Updated User', 'user1@example.com'],
+        dbAlias: 'main'
+      },
+      { log: console }
+    );
+
+    expect(result).toBeDefined();
+    expect(typeof result).toBe('string');
+    expect(result).toBe('Rows affected: 1');
+
+    // Verify the update succeeded with specific field checks
+    const queryResult = await sql.unsafe('SELECT * FROM test_users WHERE email = $1', ['user1@example.com']);
+    expect(queryResult.length).toBe(1);
+    expect(queryResult[0].name).toBe('Updated User');
+    expect(queryResult[0].id).toBe(1);
+    expect(queryResult[0].email).toBe('user1@example.com');
   });
 
   test('transaction_tool: should execute multiple statements atomically', async () => {
@@ -397,14 +559,30 @@ describe('Database MCP Tools E2E', () => {
     expect(typeof result).toBe('string');
     
     const parsed = JSON.parse(result);
-    expect(parsed['success']).toBe(true);
-    expect(parsed['results'].length).toBe(2);
-    expect(parsed['results'][0]['rowsAffected']).toBe(1);
-    expect(parsed['results'][1]['rowsAffected']).toBe(1);
+    expect(parsed.success).toBe(true);
+    expect(Array.isArray(parsed.results)).toBe(true);
+    expect(parsed.results.length).toBe(2);
+    
+    // Verify exact structure of the results array
+    expect(parsed.results[0].operation).toBe(0);
+    expect(parsed.results[0].rowsAffected).toBe(1);
+    expect(parsed.results[1].operation).toBe(1);
+    expect(parsed.results[1].rowsAffected).toBe(1);
 
-    // Verify both inserts succeeded
-    const queryResult = await sql.unsafe('SELECT * FROM test_users WHERE email IN ($1, $2)', ['user4@example.com', 'user5@example.com']);
+    // Verify both inserts succeeded with complete validation
+    const queryResult = await sql.unsafe('SELECT * FROM test_users WHERE email IN ($1, $2) ORDER BY email', 
+      ['user4@example.com', 'user5@example.com']);
     expect(queryResult.length).toBe(2);
+    
+    // Verify first inserted user
+    expect(queryResult[0].name).toBe('User Four');
+    expect(queryResult[0].email).toBe('user4@example.com');
+    expect(queryResult[0].created_at).toBeDefined();
+    
+    // Verify second inserted user
+    expect(queryResult[1].name).toBe('User Five');
+    expect(queryResult[1].email).toBe('user5@example.com');
+    expect(queryResult[1].created_at).toBeDefined();
   });
 
   test('transaction_tool: should roll back on error', async () => {
@@ -433,12 +611,37 @@ describe('Database MCP Tools E2E', () => {
     expect(typeof result).toBe('string');
     
     const parsed = JSON.parse(result);
-    expect(parsed['success']).toBe(false);
-    expect(parsed['error']).toBeDefined();
+    expect(parsed.success).toBe(false);
+    expect(typeof parsed.error).toBe('string');
+    expect(parsed.error.toLowerCase()).toContain('nonexistent_table');
+    expect(parsed.failedOperationIndex).toBe(1);
 
-    // Verify count hasn't changed (transaction rolled back)
+    // Verify transaction was completely rolled back
     const afterCount = (await sql.unsafe('SELECT COUNT(*) as count FROM test_users'))[0]['count'];
     expect(afterCount).toBe(beforeCount);
+    
+    // Specifically verify user6 was not inserted
+    const user6Result = await sql.unsafe('SELECT * FROM test_users WHERE email = $1', ['user6@example.com']);
+    expect(user6Result.length).toBe(0);
+  });
+
+  test('transaction_tool: should handle empty operations list', async () => {
+    const transactionTool = server.tools.find((tool: any) => tool.name === 'transaction_tool')!;
+    const result = await transactionTool.execute(
+      {
+        operations: [],
+        dbAlias: 'main'
+      },
+      { log: console }
+    );
+
+    expect(result).toBeDefined();
+    expect(typeof result).toBe('string');
+    
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(Array.isArray(parsed.results)).toBe(true);
+    expect(parsed.results.length).toBe(0);
   });
 
   test('resource template: should list tables', async () => {
@@ -452,8 +655,14 @@ describe('Database MCP Tools E2E', () => {
     expect(result.text).toBeDefined();
     
     const parsed = JSON.parse(result.text);
-    expect(parsed).toBeInstanceOf(Array);
-    expect(parsed).toContain('test_users');
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed.includes('test_users')).toBe(true);
+    
+    // Verify all tables are strings
+    parsed.forEach((tableName: any) => {
+      expect(typeof tableName).toBe('string');
+      expect(tableName.length).toBeGreaterThan(0);
+    });
   });
 
   test('resource template: should get table schema', async () => {
@@ -470,11 +679,98 @@ describe('Database MCP Tools E2E', () => {
     expect(result.text).toBeDefined();
     
     const parsed = JSON.parse(result.text);
-    expect(parsed).toBeInstanceOf(Array);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed.length).toBe(4); // test_users has 4 columns
     
-    // Find the id column
-    const idColumn = parsed.find((col: any) => col['column_name'] === 'id');
-    expect(idColumn).toBeDefined();
-    expect(idColumn['data_type']).toBe('integer');
+    // Check that all expected columns are present
+    const columnNames = parsed.map((col: any) => col.column_name);
+    expect(columnNames).toContain('id');
+    expect(columnNames).toContain('name');
+    expect(columnNames).toContain('email');
+    expect(columnNames).toContain('created_at');
+    
+    // Verify column details for each column
+    const idColumn = parsed.find((col: any) => col.column_name === 'id');
+    expect(idColumn.data_type).toBe('integer');
+    expect(idColumn.is_nullable).toBe('NO');
+    expect(idColumn.column_default).toContain('nextval');
+    
+    const nameColumn = parsed.find((col: any) => col.column_name === 'name');
+    expect(nameColumn.data_type).toBe('text');
+    expect(nameColumn.is_nullable).toBe('NO');
+    
+    const emailColumn = parsed.find((col: any) => col.column_name === 'email');
+    expect(emailColumn.data_type).toBe('text');
+    expect(emailColumn.is_nullable).toBe('NO');
+    
+    const createdAtColumn = parsed.find((col: any) => col.column_name === 'created_at');
+    expect(createdAtColumn.data_type).toBe('timestamp with time zone');
+    expect(createdAtColumn.is_nullable).toBe('YES');
+    expect(createdAtColumn.column_default).toContain('CURRENT_TIMESTAMP');
+  });
+
+  test('resource template: should handle non-existent tables gracefully', async () => {
+    const schemaTemplate = server.resourceTemplates.find((t: any) => t.uriTemplate === 'db://{dbAlias}/schema/{tableName}');
+    expect(schemaTemplate).toBeDefined();
+    
+    // Get the result for a non-existent table
+    const result = await schemaTemplate!.load({ dbAlias: 'main', tableName: 'nonexistent_table' });
+    
+    // Check that we got a valid response with empty array
+    expect(result).toBeDefined();
+    expect(result.text).toBeDefined();
+    expect(result.text).toBe('[]');
+    
+    // Parse the result to confirm it's an empty array
+    const parsed = JSON.parse(result.text);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed.length).toBe(0);
+  });
+  
+  test('check registered resource templates', async () => {
+    // Log all resource templates to debug
+    console.log('Available resource templates:');
+    server.resourceTemplates.forEach((t: any, index: number) => {
+      console.log(`${index + 1}. ${t.uriTemplate} - ${t.name}`);
+    });
+    
+    // Check if our new template exists
+    const allSchemasTemplate = server.resourceTemplates.find((t: any) => 
+      t.uriTemplate === 'db://{dbAlias}/schema/all');
+    
+    // If it doesn't exist, the test framework should report this assertion failure
+    expect(allSchemasTemplate).toBeDefined();
+  });
+  
+  test('resource template: should return all table schemas', async () => {
+    const allSchemasTemplate = server.resourceTemplates.find((t: any) => 
+      t.uriTemplate === 'db://{dbAlias}/schema/all');
+    expect(allSchemasTemplate).toBeDefined();
+    
+    if (!allSchemasTemplate) {
+      // Skip the rest of the test if template is not found
+      return;
+    }
+    
+    const result = await allSchemasTemplate.load({ dbAlias: 'main' });
+    expect(result).toBeDefined();
+    expect(result.text).toBeDefined();
+    
+    const parsed = JSON.parse(result.text);
+    expect(parsed).toBeInstanceOf(Object);
+    
+    // Expect the test_users table to be present
+    expect(parsed['test_users']).toBeDefined();
+    expect(parsed['test_users']).toBeInstanceOf(Array);
+    
+    // Should have 4 columns in test_users
+    expect(parsed['test_users'].length).toBe(4);
+    
+    // Check for some of the column names
+    const columnNames = parsed['test_users'].map((col: any) => col.column_name);
+    expect(columnNames).toContain('id');
+    expect(columnNames).toContain('name');
+    expect(columnNames).toContain('email');
+    expect(columnNames).toContain('created_at');
   });
 }); 
