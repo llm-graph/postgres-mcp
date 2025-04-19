@@ -15,7 +15,18 @@ import { startServer } from './core';
 import { runCli, startCliProcess } from './utils';
 
 // Export core functionality
-export { startServer, createPostgresMcp } from './core';
+export { 
+  startServer, 
+  createPostgresMcp,
+  // Add programmatic API exports
+  initConnections,
+  closeConnections,
+  executeQuery,
+  executeCommand,
+  executeTransaction,
+  fetchTableSchema,
+  fetchAllTableSchemas
+} from './core';
 
 // Export types
 export * from './types';
@@ -25,6 +36,46 @@ export * from './utils';
 
 // Export constants
 export * from './constants';
+
+// Export the original fetchTableSchema function from utils
+export { getTableSchema as getTableSchemaRaw } from './utils';
+
+// Simpler wrapper for fetchTableSchema
+export async function getTableSchema(tableName: string, dbAlias?: string) {
+  // Import fetchTableSchema from core to avoid circular dependency
+  const { fetchTableSchema } = await import('./core');
+  
+  const result = await fetchTableSchema({
+    args: {
+      name: tableName,
+      alias: dbAlias || 'main'
+    }
+  });
+  
+  if (result.type === 'result') {
+    return result.schema;
+  } else {
+    throw new Error(result.error);
+  }
+}
+
+// Simpler wrapper for fetchAllTableSchemas
+export async function getAllTableSchemas(dbAlias?: string) {
+  // Import fetchAllTableSchemas from core to avoid circular dependency
+  const { fetchAllTableSchemas } = await import('./core');
+  
+  const result = await fetchAllTableSchemas({
+    args: {
+      alias: dbAlias || 'main'
+    }
+  });
+  
+  if (result.type === 'result') {
+    return result.schemas;
+  } else {
+    throw new Error(result.error);
+  }
+}
 
 // Start the MCP server only when running the file directly
 // This ensures the server doesn't start when imported as a library

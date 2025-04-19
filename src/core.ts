@@ -8,7 +8,8 @@ import {
   TransactionToolParams, TransactionToolParamsSchema,
   TransactionSuccess, TransactionFailure,
   OperationResult, DatabaseConfig,
-  Operation, PostgresMcpOptions, PostgresMcp
+  Operation, PostgresMcpOptions, PostgresMcp,
+  TableSchemaResult
 } from './types';
 import { 
   safeJsonStringify, listTables,
@@ -767,7 +768,7 @@ export const createPostgresMcp = (options?: PostgresMcpOptions): PostgresMcp => 
 };
 
 // Implementation of fetchTableSchema for direct use
-export async function fetchTableSchema(tool_request: { args: { alias: string, name: string } }) {
+export async function fetchTableSchema(tool_request: { args: { alias: string, name: string } }): Promise<TableSchemaResult> {
   const { args } = tool_request;
   const { alias, name: tableName } = args;
   
@@ -782,6 +783,39 @@ export async function fetchTableSchema(tool_request: { args: { alias: string, na
       // Using the imported getTableSchema from utils
       const schema = await getTableSchema(connections[alias], tableName);
       return { type: 'result', schema };
+    } catch (schemaError) {
+      const errorMessage = schemaError instanceof Error ? schemaError.message : String(schemaError);
+      return { type: 'error', error: errorMessage };
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { type: 'error', error: errorMessage };
+  }
+}
+
+// Define a return type for fetchAllTableSchemas
+export type AllTableSchemasResult = {
+  type: 'result' | 'error';
+  schemas?: Record<string, Record<string, unknown>[]>;
+  error?: string;
+};
+
+// Implementation of fetchAllTableSchemas for direct use
+export async function fetchAllTableSchemas(tool_request: { args: { alias: string } }): Promise<AllTableSchemasResult> {
+  const { args } = tool_request;
+  const { alias } = args;
+  
+  try {
+    if (!connections[alias]) {
+      throw new Error(`Database connection '${alias}' not found. Available connections: ${Object.keys(connections).join(', ')}`);
+    }
+    
+    console.log(`Retrieving schema for all tables from database '${alias}'...`);
+    
+    try {
+      // Using the imported getAllTableSchemas from utils
+      const schemas = await getAllTableSchemas(connections[alias]);
+      return { type: 'result', schemas };
     } catch (schemaError) {
       const errorMessage = schemaError instanceof Error ? schemaError.message : String(schemaError);
       return { type: 'error', error: errorMessage };

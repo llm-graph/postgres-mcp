@@ -12,7 +12,14 @@ yarn add postgres-mcp
 bun add postgres-mcp
 ```
 
-## Basic Usage
+## Usage Methods
+
+There are two ways to use postgres-mcp programmatically:
+
+1. **Instance-based API**: Create a PostgresMcp instance with `createPostgresMcp()` and use its methods
+2. **Direct Function Imports**: Import specific functions directly from the package
+
+## Method 1: Instance-based API
 
 ```typescript
 import { createPostgresMcp } from 'postgres-mcp';
@@ -27,7 +34,7 @@ postgresMcp.start();
 await postgresMcp.stop();
 ```
 
-## Configuration Options
+### Configuration Options
 
 You can customize the behavior by passing options to `createPostgresMcp`:
 
@@ -70,9 +77,7 @@ const postgresMcp = createPostgresMcp({
 });
 ```
 
-## Direct Database Operations
-
-You can directly interact with the database without going through the MCP protocol:
+### Database Operations
 
 ```typescript
 // Execute a SELECT query
@@ -113,7 +118,7 @@ if (transactionData.success) {
 }
 ```
 
-## Schema Operations
+### Schema Operations
 
 ```typescript
 // List all tables in a database
@@ -123,6 +128,118 @@ console.log('Tables:', tables);
 // Get schema information for a specific table
 const userSchema = await postgresMcp.getTableSchema('users', 'main');
 console.log('User table schema:', userSchema);
+```
+
+## Method 2: Direct Function Imports
+
+For simple use cases or when you don't need the MCP server functionality, you can import specific functions directly:
+
+```typescript
+import { 
+  initConnections, 
+  closeConnections, 
+  executeQuery, 
+  executeCommand, 
+  executeTransaction, 
+  fetchTableSchema,
+  fetchAllTableSchemas, // Original all tables schema function
+  getTableSchema,       // Simplified single table schema
+  getAllTableSchemas    // Simplified all tables schema
+} from 'postgres-mcp';
+
+// Define database configurations
+const databaseConfigs = {
+  main: {
+    host: 'localhost',
+    port: 5432,
+    database: 'my_database',
+    user: 'my_user',
+    password: 'my_password'
+  }
+};
+
+// Initialize database connections
+initConnections(databaseConfigs);
+
+// Execute queries directly
+try {
+  // Execute a query
+  const result = await executeQuery(
+    'SELECT * FROM users WHERE id = $1',
+    [123],
+    'main' // optional database alias, defaults to 'main'
+  );
+  console.log('Query result:', result);
+  
+  // Execute a command
+  const commandResult = await executeCommand(
+    'UPDATE users SET last_login = NOW() WHERE id = $1',
+    [123],
+    'main'
+  );
+  console.log('Command result:', commandResult);
+  
+  // Execute a transaction
+  const transactionResult = await executeTransaction([
+    {
+      statement: 'INSERT INTO orders (customer_id, total) VALUES ($1, $2)',
+      params: [456, 99.99]
+    },
+    {
+      statement: 'UPDATE customers SET order_count = order_count + 1 WHERE id = $1',
+      params: [456]
+    }
+  ], 'main');
+  console.log('Transaction result:', transactionResult);
+  
+  // Method 1: Get single table schema (original API)
+  const schemaResult = await fetchTableSchema({ 
+    args: { 
+      alias: 'main', 
+      name: 'users' 
+    } 
+  });
+  
+  if (schemaResult.type === 'result') {
+    console.log('Table schema:', schemaResult.schema);
+  } else {
+    console.error('Schema error:', schemaResult.error);
+  }
+  
+  // Method 2: Get single table schema (simplified API)
+  try {
+    const schema = await getTableSchema('users', 'main');
+    console.log('Table schema (simplified):', schema);
+  } catch (error) {
+    console.error('Schema error:', error.message);
+  }
+  
+  // Method 1: Get all table schemas (original API)
+  const allSchemasResult = await fetchAllTableSchemas({
+    args: {
+      alias: 'main'
+    }
+  });
+  
+  if (allSchemasResult.type === 'result') {
+    console.log('All table schemas:', allSchemasResult.schemas);
+  } else {
+    console.error('Schema error:', allSchemasResult.error);
+  }
+  
+  // Method 2: Get all table schemas (simplified API)
+  try {
+    const allSchemas = await getAllTableSchemas('main');
+    console.log('All table schemas (simplified):', allSchemas);
+  } catch (error) {
+    console.error('Schema error:', error.message);
+  }
+} catch (error) {
+  console.error('Error:', error);
+} finally {
+  // Always close connections when done
+  await closeConnections();
+}
 ```
 
 ## Using with the MCP Protocol
@@ -159,7 +276,8 @@ import {
   createPostgresMcp, 
   PostgresMcp,
   PostgresMcpOptions,
-  DatabaseConfig 
+  DatabaseConfig,
+  Operation
 } from 'postgres-mcp';
 
 // All types are available for your TypeScript projects
@@ -168,11 +286,18 @@ const options: PostgresMcpOptions = {
 };
 
 const postgres: PostgresMcp = createPostgresMcp(options);
+
+// Define typed operations
+const operations: Operation[] = [
+  { statement: 'INSERT INTO users (name) VALUES ($1)', params: ['Alice'] }
+];
 ```
 
-## Complete Example
+## Examples
 
-See the [programmatic-api.ts](../examples/programmatic-api.ts) example for a complete demonstration.
+See the following examples for complete demonstrations:
+- [Instance-based API](../examples/programmatic-api.ts)
+- [Direct Function Imports](../examples/direct-imports.ts)
 
 ## Notes on Environment Variables
 

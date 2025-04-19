@@ -230,6 +230,52 @@ const results = await postgresMcp.executeQuery(
 await postgresMcp.stop();
 ```
 
+### Direct Function Imports
+
+For simpler use cases, you can import specific functions directly:
+
+```typescript
+import { 
+  initConnections, 
+  closeConnections, 
+  executeQuery, 
+  executeCommand, 
+  executeTransaction, 
+  getTableSchema,
+  getAllTableSchemas
+} from 'postgres-mcp';
+
+// Configure database connections
+const dbConfigs = {
+  main: {
+    host: 'localhost',
+    port: 5432,
+    database: 'my_db',
+    user: 'db_user',
+    password: 'db_password'
+  }
+};
+
+// Initialize connections
+initConnections(dbConfigs);
+
+// Execute a query
+const results = await executeQuery(
+  'SELECT * FROM users WHERE role = $1',
+  ['admin'],
+  'main'
+);
+
+// Get schema for a single table
+const schema = await getTableSchema('users', 'main');
+
+// Get schema for all tables in the database
+const allSchemas = await getAllTableSchemas('main');
+
+// Close connections when done
+await closeConnections();
+```
+
 ### Configuration Options
 
 ```typescript

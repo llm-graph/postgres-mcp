@@ -124,4 +124,18 @@ export type TransactionFailure = {
   failedOperationIndex: number;
 };
 
-export type TransactionResult = TransactionSuccess | TransactionFailure; 
+export type TransactionResult = TransactionSuccess | TransactionFailure;
+
+// Type for the result returned by fetchTableSchema
+export type TableSchemaResult = {
+  type: 'result' | 'error';
+  schema?: Record<string, unknown>[];
+  error?: string;
+};
+
+// Type for the result returned by fetchAllTableSchemas
+export type AllTableSchemasResult = {
+  type: 'result' | 'error';
+  schemas?: Record<string, Record<string, unknown>[]>;
+  error?: string;
+}; 
