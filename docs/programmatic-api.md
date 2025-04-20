@@ -30,6 +30,9 @@ const postgresMcp = createPostgresMcp();
 // Start the server
 postgresMcp.start();
 
+// Disconnect from all databases without stopping the server
+await postgresMcp.disconnect();
+
 // When done, stop the server and close database connections
 await postgresMcp.stop();
 ```

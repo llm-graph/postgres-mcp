@@ -735,6 +735,13 @@ export const createPostgresMcp = (options?: PostgresMcpOptions): PostgresMcp => 
         console.log('FastPostgresMCP stopped');
       },
       
+      // Disconnect from all databases without stopping the server
+      disconnect: async () => {
+        console.log('Disconnecting from all databases...');
+        await closeConnections();
+        console.log('All database connections closed, server still running');
+      },
+      
       // Access to database connections
       connections,
       

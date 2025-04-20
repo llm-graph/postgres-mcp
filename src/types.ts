@@ -51,6 +51,8 @@ export type PostgresMcp = {
   start: () => void;
   // Stop the MCP server and close database connections
   stop: () => Promise<void>;
+  // Disconnect from all databases without stopping the server
+  disconnect: () => Promise<void>;
   // Access the database connections
   connections: Record<string, any>;
   // Execute a SQL query on a specific database

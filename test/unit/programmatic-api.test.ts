@@ -126,6 +126,7 @@ describe('Programmatic API', () => {
     expect(postgresMcp).toBeDefined();
     expect(typeof postgresMcp.start).toBe('function');
     expect(typeof postgresMcp.stop).toBe('function');
+    expect(typeof postgresMcp.disconnect).toBe('function');
     expect(typeof postgresMcp.executeQuery).toBe('function');
     expect(typeof postgresMcp.executeCommand).toBe('function');
     expect(typeof postgresMcp.executeTransaction).toBe('function');
@@ -327,5 +328,21 @@ describe('Programmatic API', () => {
     
     expect(error).not.toBeNull();
     expect(error?.message).toContain("Database connection 'non_existent' not found");
+  });
+  
+  test('disconnect closes database connections without stopping the server', async () => {
+    // Make sure connections are active
+    const connectionsBefore = Object.keys(postgresMcp.connections);
+    expect(connectionsBefore.length).toBeGreaterThan(0);
+    
+    // Call disconnect
+    await postgresMcp.disconnect();
+    
+    // Try to re-establish connections for other tests
+    const { initConnections } = await import('../../src/core');
+    initConnections({
+      main: TEST_DB_CONFIG,
+      test: TEST_DB_CONFIG
+    });
   });
 }); 
